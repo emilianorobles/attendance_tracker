@@ -378,8 +378,36 @@
     const tbody = document.getElementById("tbody");
     tbody.innerHTML = "";
 
-    const days = data.agents.length > 0 ? data.agents[0].days : [];
-    const curDates = days.map(d => d.date);
+    // If a status filter is active, compute the union of dates present
+    // in the returned `data.agents` so the table shows only the matching
+    // days (avoids many blank columns). Otherwise, use the full range.
+    let curDates = [];
+    const statusVal = document.getElementById("statusFilter").value;
+    if (statusVal) {
+      const dateSet = new Set();
+      data.agents.forEach(agent => {
+        agent.days.forEach(d => dateSet.add(d.date));
+      });
+      curDates = Array.from(dateSet).sort();
+      // Fallback to full range if no dates found
+      if (curDates.length === 0) {
+        const start = parseISOToLocalDate(startISO);
+        const end = parseISOToLocalDate(endISO);
+        let cur = new Date(start);
+        while (cur <= end) {
+          curDates.push(toISOFromLocalDate(cur));
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    } else {
+      const start = parseISOToLocalDate(startISO);
+      const end = parseISOToLocalDate(endISO);
+      let cur = new Date(start);
+      while (cur <= end) {
+        curDates.push(toISOFromLocalDate(cur));
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
     buildHeaderTwoRows(curDates);
 
     data.agents.forEach(agent=>{

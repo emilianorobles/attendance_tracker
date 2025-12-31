@@ -187,21 +187,46 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
     just_map = get_justifications_map(start, end)
 
     # Index de actuals por (agent_id, date)
+    # If there are multiple connection rows per day, aggregate them taking
+    # the earliest start and the latest end so we don't miss delays.
     actuals_idx: Dict[Tuple[str, date], pd.Series] = {}
     df_act_all = get_actuals_df()
     df_act = df_act_all[df_act_all["agent_id"].isin(VALID_AGENT_IDS)].copy()
-    for _, row in df_act.iterrows():
-        actuals_idx[(row["agent_id"], row["date"])] = row
+    if not df_act.empty:
+        grp = df_act.groupby(["agent_id", "date"])
+        for (aid, d), g in grp:
+            # pick earliest non-null start and latest non-null end
+            starts = [v for v in g["actual_start_t"].tolist() if pd.notnull(v)]
+            ends = [v for v in g["actual_end_t"].tolist() if pd.notnull(v)]
+            astart = min(starts) if starts else None
+            aend = max(ends) if ends else None
+            # create a Series similar to original rows
+            actuals_idx[(str(aid), d)] = pd.Series({
+                "agent_id": str(aid),
+                "date": d,
+                "actual_start_t": astart,
+                "actual_end_t": aend,
+            })
 
     agents_out = []
     for _, arow in sched.iterrows():
         days = []
         late_sum = delays = vacations = justified = unjustified = justified_delays_sum = 0
         cur = start
+        # normalize status_filter: accept comma-separated, case-insensitive
+        allowed_statuses = None
+        if status_filter is not None:
+            allowed_statuses = {s.strip().upper() for s in str(status_filter).split(",") if s.strip()}
+
         while cur <= end:
             arow_actual = actuals_idx.get((arow["agent_id"], cur))
             item = compute_day_status(arow, cur, arow_actual, just_map)
-            if status_filter is None or item["status"] == status_filter:
+            # Match either the visible `status` or the computed `original_status`.
+            match = True
+            if allowed_statuses is not None:
+                match = (item["status"].upper() in allowed_statuses) or (item["original_status"].upper() in allowed_statuses)
+
+            if match:
                 days.append(item)
 
                 # Suma de minutos tarde (post-override y post-tolerancia)
