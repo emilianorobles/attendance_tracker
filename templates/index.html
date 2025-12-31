@@ -224,6 +224,16 @@
     document.getElementById("titleMonth").textContent = " — " + monthYear;
   }
 
+  // Summary columns mapping: key -> displayed label
+  const SUMMARY_COLS = [
+    { key: "late_minutes_sum", label: "Late Minutes" },
+    { key: "delays_sum", label: "Delays" },
+    { key: "vacations_sum", label: "Vacations" },
+    { key: "justified_sum", label: "Justified" },
+    { key: "unjustified_sum", label: "Unjustified" },
+    { key: "justified_delays_sum", label: "Justified Delays" },
+  ];
+
   // Init date range picker
   fp = flatpickr("#daterange", {
     mode: "range",
@@ -381,10 +391,10 @@
       const th = document.createElement("th"); th.textContent = String(date.getDate());
       tr2.appendChild(th);
     }
-    ["late_minutes_sum","delays_sum","vacations_sum","justified_sum","unjustified_sum","justified_delays_sum"].forEach(h=>{
-      const th = document.createElement("th"); th.textContent = h;
+    SUMMARY_COLS.forEach(col => {
+      const th = document.createElement("th"); th.textContent = col.label;
       th.classList.add('sortable');
-      th.addEventListener('click', () => sortTable(h));
+      th.addEventListener('click', () => sortTable(col.label));
       tr2.appendChild(th);
     });
     thead.appendChild(tr2);
@@ -447,8 +457,8 @@
         tr.appendChild(td);
       });
 
-      ["late_minutes_sum","delays_sum","vacations_sum","justified_sum","unjustified_sum","justified_delays_sum"].forEach(k=>{
-        const td = document.createElement("td"); td.textContent = agent[k];
+      SUMMARY_COLS.forEach(c => {
+        const td = document.createElement("td"); td.textContent = agent[c.key];
         tr.appendChild(td);
       });
 
