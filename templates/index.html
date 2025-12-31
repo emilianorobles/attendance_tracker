@@ -50,6 +50,18 @@
     .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
     .field input, .field select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
       background:var(--input-bg); color:var(--text); }
+    /* Make the date range input look like the selects (add dropdown arrow) */
+    #daterange {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23ffffff'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      background-size: 16px 16px;
+      padding-right: 36px;
+      cursor: pointer;
+    }
     .actions { display:flex; gap:8px; }
     .btn { padding:10px 12px; border-radius:8px; border:1px solid var(--border);
       background:var(--card); color:var(--text); cursor:pointer; transition:.2s; }
@@ -123,7 +135,6 @@
       </select>
     </div>
     <div class="actions">
-      <button class="btn" id="btnLoad">Load</button>
       <button class="btn" id="btnClear">Clear filters</button>
     </div>
   </section>
@@ -232,26 +243,31 @@
   setTitleMonth(DEFAULT_START);
 
   // Init Tom Select for Lead
-  leadSelect = new TomSelect("#lead", {
-    options: APP_OPTIONS.leads.map(l => ({ value: l, text: l })),
-    persist: false, create: false, allowEmptyOption: true, placeholder: "Select a lead",
-    maxOptions: 1000, plugins: ["clear_button"],
-    onChange: function(){ loadAttendance().catch(err => alert(err.message)); }
-  });
+  // Populate native select for Lead to match status dropdown styling
+  const leadEl = document.getElementById('lead');
+  leadEl.innerHTML = '<option value="">All</option>' + APP_OPTIONS.leads.map(l => `<option value="${l}">${l}</option>`).join('');
+  leadEl.addEventListener('change', () => loadAttendance().catch(err => alert(err.message)));
+  // Wrapper to keep compatibility with code expecting a TomSelect-like API
+  leadSelect = {
+    getValue: () => leadEl.value,
+    clear: (_keep) => { leadEl.value = ''; }
+  };
 
   // Init Tom Select for Agent (ID)
-  agentSelect = new TomSelect("#agent_id", {
-    options: APP_OPTIONS.agents.map(a => ({ value: a.id, text: `${a.id} — ${a.name}` })),
-    persist: false, create: false, allowEmptyOption: true, placeholder: "Select an agent",
-    maxOptions: 5000, searchField: ["text","value"], plugins: ["clear_button"],
-    onChange: function(){ loadAttendance().catch(err => alert(err.message)); }
-  });
+  // Populate native select for Agent (ID) to match status dropdown styling
+  const agentEl = document.getElementById('agent_id');
+  agentEl.innerHTML = '<option value="">All</option>' + APP_OPTIONS.agents.map(a => `<option value="${a.id}">${a.id} — ${a.name}</option>`).join('');
+  agentEl.addEventListener('change', () => loadAttendance().catch(err => alert(err.message)));
+  // Wrapper for compatibility with existing code
+  agentSelect = {
+    getValue: () => agentEl.value,
+    clear: (_keep) => { agentEl.value = ''; }
+  };
 
   // Status filter
   document.getElementById("statusFilter").addEventListener("change", () => loadAttendance().catch(e => alert(e.message)));
   document.getElementById("statusFilter").addEventListener("blur", () => loadAttendance().catch(e => alert(e.message)));
 
-  document.getElementById("btnLoad").addEventListener("click", () => loadAttendance().catch(e => alert(e.message)));
   document.getElementById("btnClear").addEventListener("click", () => {
     fp.clear();
     fp.setDate([DEFAULT_START, DEFAULT_END]);
