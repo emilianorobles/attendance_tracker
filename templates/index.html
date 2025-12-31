@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>SCE IT Service Desk - Attendance</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+<!-- PWA manifest -->
+<meta name="theme-color" content="#3b82f6">
+
+  <!-- Flatpickr CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <!-- Tom Select CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css">
+
+<!-- Registrar Service Worker para PWA -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/static/service-worker.js')
+        .then(reg => console.log('Service Worker registrado:', reg.scope))
+        .catch(err => console.error('Error al registrar SW:', err));
+    });
+  }
+</script>
+
+  <style>
+    :root{
+      --bg:#0f172a; --card:#111827; --text:#e5e7eb; --muted:#9ca3af;
+      --accent:#3b82f6; --ok:#22c55e; --delay:#f59e0b; --unjust:#ef4444;
+      --just:#a78bfa; --vac:#38bdf8; --off:#6b7280; --border:#1f2937;
+      --glow:#ffffff; --input-bg:#0b1220; --even-row:#0d1424; --header-bg:#0b1220;
+    }
+    .light-mode {
+      --bg:#ffffff; --card:#f8f9fa; --text:#212529; --muted:#495057;
+      --accent:#007bff; --ok:#28a745; --delay:#fd7e14; --unjust:#dc3545;
+      --just:#6f42c1; --vac:#20c997; --off:#6c757d; --border:#dee2e6;
+      --glow:#000000; --input-bg:#ffffff; --even-row:#f8f9fa; --header-bg:#f8f9fa;
+    }
+    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U, .light-mode .status-J, .light-mode .status-V, .light-mode .status-O { color: #000; }
+    *{ box-sizing:border-box }
+    body { margin:0; background:var(--bg); color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+    .container { max-width: 1400px; margin: 24px auto; padding: 0 16px; }
+    header { display:flex; align-items:center; gap:8px; justify-content:space-between; margin-bottom:16px; }
+    header h1 { margin:0; font-size:22px; letter-spacing:.5px; }
+    .title-secondary { color: var(--muted); font-size: 12px; margin-left: 6px; }
+    .filters { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1fr auto; gap:12px; align-items:end;
+      background: var(--card); padding:12px; border:1px solid var(--border); border-radius:10px; }
+    .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+    .field input, .field select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
+      background:var(--input-bg); color:var(--text); }
+    .actions { display:flex; gap:8px; }
+    .btn { padding:10px 12px; border-radius:8px; border:1px solid var(--border);
+      background:var(--card); color:var(--text); cursor:pointer; transition:.2s; }
+    .btn:hover { background:var(--even-row); }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color:#fff; }
+    .table-wrap { margin-top:16px; background: var(--card); border:1px solid var(--border); border-radius:10px; overflow-x:auto; }
+    table { border-collapse: collapse; width:100%; min-width: 900px; }
+    th, td { border:1px solid var(--border); padding:8px; text-align:center; font-size:13px; white-space:nowrap; }
+    thead tr:nth-child(1) th { background:var(--header-bg); position:sticky; top:0; z-index:3; }
+    thead tr:nth-child(2) th { background:var(--header-bg); position:sticky; top:32px; z-index:2; }
+    tbody tr:nth-child(even) { background: var(--even-row); }
+    .status-A { background: rgba(34,197,94,.3); border-color: rgba(34,197,94,.5); }
+    .status-D { background: rgba(245,158,11,.3); border-color: rgba(245,158,11,.5); }
+    .status-U { background: rgba(239,68,68,.3); border-color: rgba(239,68,68,.5); }
+    .status-J { background: rgba(167,139,250,.3); border-color: rgba(167,139,250,.5); }
+    .status-V { background: rgba(56,189,248,.3); border-color: rgba(56,189,248,.5); }
+    .status-O { background: rgba(107,114,128,.3); border-color: rgba(107,114,128,.5); }
+    /* Text color for status cells - white in dark mode */
+    .status-A, .status-D, .status-U, .status-J, .status-V, .status-O { color: #fff; }
+    /* ✔ Celda con override/justificación: brillo y borde más claro */
+    .ovr { box-shadow: 0 0 0 2px rgba(255,255,255,.25) inset, 0 0 6px rgba(255,255,255,.15); filter: brightness(1.15); }
+    td { cursor:pointer; }
+    .summary { margin-top:8px; font-size:13px; color:var(--muted); }
+    dialog { border:none; padding:0; }
+    .modal { background: var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; min-width:300px; color: var(--text); }
+    .modal h3 { margin:0 0 8px 0; }
+    .modal .row { display:grid; grid-template-columns: 1fr 2fr; gap:8px; margin-top:8px; }
+    .modal input, .modal select, .modal textarea { padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--input-bg); color:var(--text); }
+    .modal footer { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+    .sortable { cursor: pointer; user-select: none; }
+    .mode-toggle { background: none; border: none; color: var(--text); font-size: 18px; cursor: pointer; padding: 4px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div style="display:flex; align-items:center;">
+      <h1 id="titleMain">SCE IT Service Desk - Attendance</h1>
+      <div class="title-secondary" id="titleMonth"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btnJustificationsReport">Justifications Report</button>
+      <button class="btn accent" id="btnExport">Export</button>
+      <button class="mode-toggle" id="modeToggle" title="Toggle Light/Dark Mode">🌙</button>
+    </div>
+  </header>
+
+  <section class="filters">
+    <div class="field">
+      <label>Date Range</label>
+      <input id="daterange" placeholder="Select date range (YYYY-MM-DD)" />
+    </div>
+    <div class="field">
+      <label>Lead</label>
+      <select id="lead" placeholder="Select a lead"></select>
+    </div>
+    <div class="field">
+      <label>Agent (ID)</label>
+      <select id="agent_id" placeholder="Select an agent"></select>
+    </div>
+    <div class="field">
+      <label>Status</label>
+      <select id="statusFilter">
+        <option value="">All</option>
+        <option value="A">A (Attendance)</option>
+        <option value="V">V (Vacation)</option>
+        <option value="D">D (Delay)</option>
+        <option value="O">O (Day Off)</option>
+        <option value="U">U (Unjustified)</option>
+        <option value="J">J (Justified)</option>
+      </select>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btnLoad">Load</button>
+      <button class="btn" id="btnClear">Clear filters</button>
+    </div>
+  </section>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<dialog id="modal">
+  <div class="modal">
+    <h3>Justify / Vacation / Override</h3>
+    <div class="row">
+      <label>Agent</label>
+      <input id="mAgent" readonly/>
+    </div>
+    <div class="row">
+      <label>Date</label>
+      <input id="mDate" readonly/>
+    </div>
+    <div class="row">
+      <label>Type</label>
+      <select id="mType">
+        <option value="A">A (Attendance)</option>
+        <option value="J">J (Justified)</option>
+        <option value="V">V (Vacation)</option>
+        <option value="U">U (Unjustified)</option>
+        <option value="D">D (Delay)</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Note</label>
+      <textarea id="mNote" placeholder="Reason / comment..."></textarea>
+    </div>
+    <div class="row">
+      <label>Lead</label>
+      <input id="mLead" placeholder="Lead name (optional)"/>
+    </div>
+    <footer>
+      <button class="btn" id="mRevert">Revert</button>
+      <button class="btn" id="mCancel">Cancel</button>
+      <button class="btn accent" id="mSave">Save</button>
+    </footer>
+    <div class="footer-note">Changes are stored locally in SQLite.</div>
+  </div>
+</dialog>
+
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<!-- Tom Select JS -->
+<script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
+
+<div id="app-options" style="display:none;">{{options_json|safe}}</div>
+
+<script>
+  // Datos dinámicos desde schedule.csv inyectados por el servidor:
+  const APP_OPTIONS = JSON.parse(document.getElementById('app-options').textContent);
+
+  // Rango por defecto (Diciembre del año actual)
+  const DEFAULT_START = "{{default_start}}";
+  const DEFAULT_END = "{{default_end}}";
+
+  let fp = null;
+  let leadSelect = null, agentSelect = null;
+
+  // Helpers de fecha en LOCAL (evitan toISOString/UTC)
+  function parseISOToLocalDate(isoStr){
+    const [y, m, d] = isoStr.split("-").map(Number);
+    return new Date(y, m-1, d);
+  }
+  function toISOFromLocalDate(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,"0");
+    const dd = String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${dd}`;
+  }
+
+  function setTitleMonth(startISO){
+    const d = parseISOToLocalDate(startISO);
+    const monthYear = d.toLocaleString("en-US", { month: "long", year: "numeric" }); // "December 2025"
+    document.getElementById("titleMain").textContent = "SCE IT Service Desk - Attendance";
+    document.getElementById("titleMonth").textContent = " — " + monthYear;
+  }
+
+  // Init date range picker
+  fp = flatpickr("#daterange", {
+    mode: "range",
+    dateFormat: "Y-m-d",
+    defaultDate: [DEFAULT_START, DEFAULT_END],
+    onChange: function(selectedDates){
+      if (selectedDates.length === 2) {
+        const startISO = toISOFromLocalDate(selectedDates[0]);
+        const endISO = toISOFromLocalDate(selectedDates[1]);
+        setTitleMonth(startISO);
+        loadAttendance(startISO, endISO).catch(err => alert(err.message));
+      }
+    }
+  });
+
+  // Set initial title
+  setTitleMonth(DEFAULT_START);
+
+  // Init Tom Select for Lead
+  leadSelect = new TomSelect("#lead", {
+    options: APP_OPTIONS.leads.map(l => ({ value: l, text: l })),
+    persist: false, create: false, allowEmptyOption: true, placeholder: "Select a lead",
+    maxOptions: 1000, plugins: ["clear_button"],
+    onChange: function(){ loadAttendance().catch(err => alert(err.message)); }
+  });
+
+  // Init Tom Select for Agent (ID)
+  agentSelect = new TomSelect("#agent_id", {
+    options: APP_OPTIONS.agents.map(a => ({ value: a.id, text: `${a.id} — ${a.name}` })),
+    persist: false, create: false, allowEmptyOption: true, placeholder: "Select an agent",
+    maxOptions: 5000, searchField: ["text","value"], plugins: ["clear_button"],
+    onChange: function(){ loadAttendance().catch(err => alert(err.message)); }
+  });
+
+  // Status filter
+  document.getElementById("statusFilter").addEventListener("change", () => loadAttendance().catch(e => alert(e.message)));
+  document.getElementById("statusFilter").addEventListener("blur", () => loadAttendance().catch(e => alert(e.message)));
+
+  document.getElementById("btnLoad").addEventListener("click", () => loadAttendance().catch(e => alert(e.message)));
+  document.getElementById("btnClear").addEventListener("click", () => {
+    fp.clear();
+    fp.setDate([DEFAULT_START, DEFAULT_END]);
+    setTitleMonth(DEFAULT_START);
+    leadSelect.clear(true);
+    agentSelect.clear(true);
+    document.getElementById("statusFilter").value = "";
+    loadAttendance().catch(e => alert(e.message));
+  });
+
+  document.getElementById("btnExport").addEventListener("click", ()=>{
+    const { qs } = getFilters();
+    window.location.href = `/export.xlsx?${qs}`;
+  });
+
+  document.getElementById("btnJustificationsReport").addEventListener("click", ()=>{
+    window.location.href = `/justifications_report.xlsx`;
+  });
+
+  function getFilters() {
+    const sel = fp.selectedDates;
+    let startISO = DEFAULT_START, endISO = DEFAULT_END;
+    if (sel.length === 2) {
+      startISO = toISOFromLocalDate(sel[0]);
+      endISO = toISOFromLocalDate(sel[1]);
+    }
+    const lead = leadSelect.getValue();
+    const agent_id = agentSelect.getValue();
+    const status = document.getElementById("statusFilter").value;
+    const qs = new URLSearchParams();
+    qs.set("start", startISO);
+    qs.set("end", endISO);
+    if (lead) qs.set("lead", lead);
+    if (agent_id) qs.set("agent_id", agent_id);
+    if (status) qs.set("status", status);
+    return { startISO, endISO, lead, agent_id, status, qs: qs.toString() };
+  }
+
+  async function fetchJSON(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  function sortTable(columnName) {
+    const tbody = document.getElementById('tbody');
+    const rows = Array.from(tbody.rows);
+    // Find the column index
+    const thead = document.getElementById('thead');
+    const headerRow = thead.rows[1]; // second row
+    let colIndex = -1;
+    for (let i = 0; i < headerRow.cells.length; i++) {
+      if (headerRow.cells[i].textContent === columnName) {
+        colIndex = i;
+        break;
+      }
+    }
+    if (colIndex === -1) return;
+    // Sort rows
+    rows.sort((a, b) => {
+      let aVal, bVal;
+      if (columnName === 'Employee/Name') {
+        aVal = a.cells[colIndex].textContent.toLowerCase();
+        bVal = b.cells[colIndex].textContent.toLowerCase();
+      } else {
+        aVal = parseInt(a.cells[colIndex].textContent) || 0;
+        bVal = parseInt(b.cells[colIndex].textContent) || 0;
+      }
+      if (aVal < bVal) return -1;
+      if (aVal > bVal) return 1;
+      return 0;
+    });
+    // Toggle order
+    const currentOrder = tbody.dataset.sortOrder || 'asc';
+    const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+    tbody.dataset.sortOrder = newOrder;
+    if (newOrder === 'desc') {
+      rows.reverse();
+    }
+    // Reappend
+    rows.forEach(row => tbody.appendChild(row));
+  }
+
+  function buildHeaderTwoRows(curDates) {
+    const thead = document.getElementById("thead");
+    thead.innerHTML = "";
+
+    // Row 1: weekdays
+    const tr1 = document.createElement("tr");
+    const thBlank1 = document.createElement("th"); thBlank1.textContent = ""; tr1.appendChild(thBlank1);
+    const thBlank2 = document.createElement("th"); thBlank2.textContent = ""; tr1.appendChild(thBlank2);
+
+    for (const d of curDates) {
+      const date = parseISOToLocalDate(d);
+      const wd = date.toLocaleDateString("en-US", { weekday: "short" }); // Mon, Tue...
+      const th = document.createElement("th"); th.textContent = wd;
+      tr1.appendChild(th);
+    }
+    thead.appendChild(tr1);
+
+    // Row 2: Call ID, Employee/Name, day numbers + summaries
+    const tr2 = document.createElement("tr");
+    const thId = document.createElement("th"); thId.textContent = "Call ID"; tr2.appendChild(thId);
+    const thName = document.createElement("th"); thName.textContent = "Employee/Name"; 
+    thName.classList.add('sortable');
+    thName.addEventListener('click', () => sortTable('Employee/Name'));
+    tr2.appendChild(thName);
+
+    for (const d of curDates) {
+      const date = parseISOToLocalDate(d);
+      const th = document.createElement("th"); th.textContent = String(date.getDate());
+      tr2.appendChild(th);
+    }
+    ["late_minutes_sum","delays_sum","vacations_sum","justified_sum","unjustified_sum","justified_delays_sum"].forEach(h=>{
+      const th = document.createElement("th"); th.textContent = h;
+      th.classList.add('sortable');
+      th.addEventListener('click', () => sortTable(h));
+      tr2.appendChild(th);
+    });
+    thead.appendChild(tr2);
+  }
+
+  function buildBody(data, startISO, endISO) {
+    const tbody = document.getElementById("tbody");
+    tbody.innerHTML = "";
+
+    const days = data.agents.length > 0 ? data.agents[0].days : [];
+    const curDates = days.map(d => d.date);
+    buildHeaderTwoRows(curDates);
+
+    data.agents.forEach(agent=>{
+      const tr = document.createElement("tr");
+      const tdId = document.createElement("td"); tdId.textContent = agent.agent_id;
+      const tdName = document.createElement("td"); tdName.textContent = agent.name;
+      tr.appendChild(tdId); tr.appendChild(tdName);
+
+      const byDate = {};
+      agent.days.forEach(d => { byDate[d.date] = d; });
+
+      curDates.forEach(d=>{
+        const td = document.createElement("td");
+        const item = byDate[d];
+        const st = item ? item.status : "";
+        td.textContent = st;
+        td.className = "status-" + st;
+        if (item && item.is_overridden) td.classList.add("ovr"); // ✔ resalta justificados/overrides
+        if (item && item.tooltip && st === "D") { td.title = item.tooltip; }
+        td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d));
+        tr.appendChild(td);
+      });
+
+      ["late_minutes_sum","delays_sum","vacations_sum","justified_sum","unjustified_sum","justified_delays_sum"].forEach(k=>{
+        const td = document.createElement("td"); td.textContent = agent[k];
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById("summary").textContent = `Agents: ${data.agents.length}`;
+    document.getElementById('tbody').dataset.sortOrder = '';
+  }
+
+  async function loadAttendance(optStartISO=null, optEndISO=null) {
+    const { startISO, endISO, qs } = (optStartISO && optEndISO)
+      ? { startISO: optStartISO, endISO: optEndISO,
+          qs: new URLSearchParams({
+            start: optStartISO, end: optEndISO,
+            ...(leadSelect.getValue()?{lead:leadSelect.getValue()}:{}),
+            ...(agentSelect.getValue()?{agent_id:agentSelect.getValue()}:{}),
+            ...(document.getElementById("statusFilter").value?{status:document.getElementById("statusFilter").value}:{}),
+          }).toString()
+        }
+      : getFilters();
+
+    const startD = parseISOToLocalDate(startISO);
+    const endD = parseISOToLocalDate(endISO);
+    const curDates = [];
+    let cur = new Date(startD);
+    while (cur <= endD) {
+      curDates.push(toISOFromLocalDate(cur));
+      cur.setDate(cur.getDate()+1);
+    }
+    buildHeaderTwoRows(curDates);
+    const data = await fetchJSON(`/attendance?${qs}`);
+    buildBody(data, startISO, endISO);
+  }
+
+  function openModal(agent_id, agent_name, dateISO) {
+    document.getElementById("mAgent").value = `${agent_id} — ${agent_name}`;
+    document.getElementById("mDate").value = dateISO;
+    document.getElementById("mType").value = "A"; // default: Attendance
+    document.getElementById("mNote").value = "";
+    document.getElementById("mLead").value = "";
+    const dlg = document.getElementById("modal");
+    dlg.showModal();
+
+    document.getElementById("mCancel").onclick = ()=> dlg.close();
+
+    // Guardar / override
+    document.getElementById("mSave").onclick = async ()=>{
+      const body = {
+        agent_id: String(agent_id),
+        date: dateISO,
+        type: document.getElementById("mType").value,
+        note: document.getElementById("mNote").value,
+        lead: document.getElementById("mLead").value,
+      };
+      const res = await fetch("/attendance/justify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { alert(await res.text()); }
+      else { dlg.close(); await loadAttendance(); }
+    };
+
+    // Revert (elimina justificación)
+    document.getElementById("mRevert").onclick = async ()=>{
+      const qs = new URLSearchParams({ agent_id: String(agent_id), date: dateISO }).toString();
+      const res = await fetch(`/attendance/justify?${qs}`, { method: "DELETE" });
+      if (!res.ok) { alert(await res.text()); }
+      else { dlg.close(); await loadAttendance(); }
+    };
+  }
+
+  // Set initial mode
+  let initialTheme;
+  try {
+    initialTheme = localStorage.getItem('theme');
+  } catch {
+    initialTheme = null;
+  }
+  if (initialTheme === 'light') {
+    document.body.classList.add('light-mode');
+    document.getElementById('modeToggle').textContent = '☀️';
+  } else {
+    document.getElementById('modeToggle').textContent = '🌙';
+  }
+
+  // Toggle mode
+  document.getElementById('modeToggle').addEventListener('click', () => {
+    document.body.classList.toggle('light-mode');
+    const isLight = document.body.classList.contains('light-mode');
+    document.getElementById('modeToggle').textContent = isLight ? '☀️' : '🌙';
+    try {
+      localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    } catch {
+      // ignore if blocked
+    }
+  });
+</script>
+</body>
+</html>
