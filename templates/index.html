@@ -339,7 +339,7 @@
     // Sort rows
     rows.sort((a, b) => {
       let aVal, bVal;
-      if (columnName === 'Employee/Name') {
+      if (columnName === 'Agent Name') {
         aVal = a.cells[colIndex].textContent.toLowerCase();
         bVal = b.cells[colIndex].textContent.toLowerCase();
       } else {
@@ -380,10 +380,10 @@
 
     // Row 2: Call ID, Employee/Name, day numbers + summaries
     const tr2 = document.createElement("tr");
-    const thId = document.createElement("th"); thId.textContent = "Call ID"; tr2.appendChild(thId);
-    const thName = document.createElement("th"); thName.textContent = "Employee/Name"; 
+    const thId = document.createElement("th"); thId.textContent = "Agent ID"; tr2.appendChild(thId);
+    const thName = document.createElement("th"); thName.textContent = "Agent Name"; 
     thName.classList.add('sortable');
-    thName.addEventListener('click', () => sortTable('Employee/Name'));
+    thName.addEventListener('click', () => sortTable('Agent Name'));
     tr2.appendChild(thName);
 
     for (const d of curDates) {
@@ -557,6 +557,9 @@
       // ignore if blocked
     }
   });
+
+  // Initial load: populate table when page opens
+  loadAttendance().catch(e => console.error('Initial load failed', e));
 </script>
 </body>
 </html>
