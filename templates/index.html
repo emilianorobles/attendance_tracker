@@ -103,6 +103,7 @@
       <div class="title-secondary" id="titleMonth"></div>
     </div>
     <div class="actions">
+      <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Upload Actuals</button>
       <button class="btn" id="btnJustificationsReport">Justifications Report</button>
       <button class="btn accent" id="btnExport">Export</button>
       <button class="mode-toggle" id="modeToggle" title="Toggle Light/Dark Mode">🌙</button>
@@ -184,6 +185,32 @@
       <button class="btn accent" id="mSave">Save</button>
     </footer>
     <div class="footer-note">Changes are stored locally in SQLite.</div>
+  </div>
+</dialog>
+
+<!-- Upload Actuals Modal -->
+<dialog id="uploadModal">
+  <div class="modal" style="min-width: 400px;">
+    <h3>📤 Upload Actuals CSV</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
+      Upload a new <code>actuals.csv</code> file to update attendance data.
+    </p>
+    <div class="row">
+      <label>Admin Token</label>
+      <input id="uploadToken" type="password" placeholder="Enter admin token" />
+    </div>
+    <div id="dropZone" style="border: 2px dashed var(--border); border-radius: 10px; padding: 32px; text-align: center; margin: 12px 0; cursor: pointer; transition: .2s;">
+      <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
+      <div>Drag & drop <strong>actuals.csv</strong> here</div>
+      <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">or click to browse</div>
+      <input type="file" id="fileInput" accept=".csv" style="display: none;" />
+    </div>
+    <div id="uploadFileName" style="font-size: 13px; color: var(--muted); margin-bottom: 8px;"></div>
+    <div id="uploadStatus" style="font-size: 13px; margin-bottom: 8px;"></div>
+    <footer>
+      <button class="btn" id="uploadCancel">Cancel</button>
+      <button class="btn accent" id="uploadSubmit" disabled>Upload</button>
+    </footer>
   </div>
 </dialog>
 
@@ -560,6 +587,123 @@
 
   // Initial load: populate table when page opens
   loadAttendance().catch(e => console.error('Initial load failed', e));
+
+  // ========== Upload Actuals Modal ==========
+  (function() {
+    const uploadModal = document.getElementById('uploadModal');
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadFileName = document.getElementById('uploadFileName');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const uploadSubmit = document.getElementById('uploadSubmit');
+    const uploadCancel = document.getElementById('uploadCancel');
+    const uploadToken = document.getElementById('uploadToken');
+
+    let selectedFile = null;
+
+    // Open modal
+    document.getElementById('btnUploadActuals').addEventListener('click', () => {
+      selectedFile = null;
+      fileInput.value = '';
+      uploadFileName.textContent = '';
+      uploadStatus.textContent = '';
+      uploadStatus.style.color = 'var(--muted)';
+      uploadSubmit.disabled = true;
+      uploadModal.showModal();
+    });
+
+    // Close modal
+    uploadCancel.addEventListener('click', () => uploadModal.close());
+
+    // Click on drop zone to browse
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    // File selected via browse
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--accent)';
+      dropZone.style.background = 'rgba(59, 130, 246, 0.1)';
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--border)';
+      dropZone.style.background = 'transparent';
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'var(--border)';
+      dropZone.style.background = 'transparent';
+      if (e.dataTransfer.files.length > 0) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    function handleFile(file) {
+      if (!file.name.toLowerCase().endsWith('.csv')) {
+        uploadStatus.textContent = '❌ Please select a .csv file';
+        uploadStatus.style.color = 'var(--unjust)';
+        uploadSubmit.disabled = true;
+        return;
+      }
+      selectedFile = file;
+      uploadFileName.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      uploadStatus.textContent = '';
+      uploadSubmit.disabled = false;
+    }
+
+    // Submit upload
+    uploadSubmit.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      const token = uploadToken.value.trim();
+      if (!token) {
+        uploadStatus.textContent = '❌ Please enter the admin token';
+        uploadStatus.style.color = 'var(--unjust)';
+        return;
+      }
+
+      uploadSubmit.disabled = true;
+      uploadStatus.textContent = '⏳ Uploading...';
+      uploadStatus.style.color = 'var(--muted)';
+
+      const formData = new FormData();
+      formData.append('token', token);
+      formData.append('file', selectedFile);
+
+      try {
+        const res = await fetch('/admin/upload-actuals', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          uploadStatus.textContent = `✅ ${data.message} (${data.rows} rows)`;
+          uploadStatus.style.color = 'var(--ok)';
+          // Reload attendance data after successful upload
+          setTimeout(() => {
+            uploadModal.close();
+            loadAttendance().catch(e => console.error('Reload failed', e));
+          }, 1500);
+        } else {
+          uploadStatus.textContent = `❌ ${data.detail || 'Upload failed'}`;
+          uploadStatus.style.color = 'var(--unjust)';
+          uploadSubmit.disabled = false;
+        }
+      } catch (err) {
+        uploadStatus.textContent = `❌ Error: ${err.message}`;
+        uploadStatus.style.color = 'var(--unjust)';
+        uploadSubmit.disabled = false;
+      }
+    });
+  })();
 </script>
 </body>
 </html>
