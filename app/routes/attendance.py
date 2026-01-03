@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import StreamingResponse
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 from io import BytesIO
+from typing import Dict, Tuple, Any, List
 import pandas as pd
 
-from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, actual_interval_for_day, compute_day_status
-from ..database import get_justifications_map
+from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, compute_day_status
+from ..database import get_justifications_map, upsert_justification, delete_justification
 from ..models.schemas import JustifyBody
-from ..database import upsert_justification, delete_justification
 
 router = APIRouter()
 
@@ -71,7 +71,6 @@ def export_excel(
 
     # --- Attendance (resumen) ---
     data = build_attendance(start_d, end_d, lead, agent_id)
-    from datetime import timedelta
     day_labels: list[str] = []
     cur = start_d
     while cur <= end_d:
@@ -111,7 +110,6 @@ def export_excel(
     valid_agents = set(sched["agent_id"].astype(str).tolist())
     df_act_all = df_act_all[df_act_all["agent_id"].isin(valid_agents)].copy()
 
-    from typing import Dict, Tuple, Any, List
     actuals_by_day: Dict[Tuple[str, date], List[pd.Series]] = {}
     for _, r in df_act_all.iterrows():
         key = (str(r["agent_id"]), r["date"])

@@ -79,6 +79,8 @@
     .status-J { background: rgba(167,139,250,.3); border-color: rgba(167,139,250,.5); }
     .status-V { background: rgba(56,189,248,.3); border-color: rgba(56,189,248,.5); }
     .status-O { background: rgba(107,114,128,.3); border-color: rgba(107,114,128,.5); }
+    /* Pending/future dates - empty neutral style */
+    .status-- { background: transparent; border-color: var(--border); color: var(--muted); }
     /* Text color for status cells - white in dark mode */
     .status-A, .status-D, .status-U, .status-J, .status-V, .status-O { color: #fff; }
     /* ✔ Celda con override/justificación: brillo y borde más claro */
@@ -511,11 +513,15 @@
         const td = document.createElement("td");
         const item = byDate[d];
         const st = item ? item.status : "";
-        td.textContent = st;
+        // Show empty for pending/future dates ("-")
+        td.textContent = (st === "-") ? "" : st;
         td.className = "status-" + st;
         if (item && item.is_overridden) td.classList.add("ovr"); // ✔ resalta justificados/overrides
         if (item && item.tooltip && st === "D") { td.title = item.tooltip; }
-        td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d));
+        // Don't allow clicking on future dates
+        if (st !== "-") {
+          td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d));
+        }
         tr.appendChild(td);
       });
 

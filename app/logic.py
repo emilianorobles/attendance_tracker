@@ -45,7 +45,6 @@ def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     
     # Fall back to CSV file (for dates before any versioned schedule)
     return SCHEDULE_DF
-    return df
 
 def load_actuals() -> pd.DataFrame:
     """
@@ -109,6 +108,7 @@ def compute_day_status(
 ) -> Dict[str, Any]:
     """
     Calcula estado del día y aplica override.
+      - '-' (pending) si el día es futuro (no ha pasado aún).
       - Off 'O' si weekday ∈ days_off.
       - U si no hay registro en día laborable.
       - A si late_minutes == 0; D si > 0.
@@ -123,6 +123,23 @@ def compute_day_status(
     lead = agent_row["lead"]
     days_off = set(parse_days_list(agent_row["days_off"]))
     dow = weekday_token(day)
+    
+    today = date.today()
+
+    # Future dates: return pending status (empty cell)
+    if day > today:
+        return {
+            "agent_id": agent_id,
+            "name": name,
+            "lead": lead,
+            "date": day.isoformat(),
+            "status": "-",
+            "late_minutes": 0,
+            "overtime_minutes": 0,
+            "tooltip": None,
+            "original_status": "-",
+            "is_overridden": False,
+        }
 
     # Base (estado original)
     if dow in days_off:

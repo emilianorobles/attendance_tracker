@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, datetime
 from typing import Optional
 
 def parse_hhmm_or_hhmmss(s: str) -> Optional[time]:
@@ -10,7 +10,6 @@ def parse_hhmm_or_hhmmss(s: str) -> Optional[time]:
         return None
     for fmt in ("%H:%M:%S", "%H:%M"):
         try:
-            from datetime import datetime
             return datetime.strptime(s, fmt).time()
         except ValueError:
             pass
