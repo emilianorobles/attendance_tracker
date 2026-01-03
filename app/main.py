@@ -9,6 +9,7 @@ from pathlib import Path
 from .logic import SCHEDULE_DF
 from .database import init_db
 from .routes.attendance import router as attendance_router
+from .routes.admin import router as admin_router
 
 APP_TITLE = "Attendance"
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +27,7 @@ init_db()
 
 # Include routes
 app.include_router(attendance_router)
+app.include_router(admin_router)
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
