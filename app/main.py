@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from datetime import date
+from datetime import date, timedelta
 import json
 from pathlib import Path
 
@@ -35,11 +35,16 @@ app.include_router(admin_router)
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    # Rango por defecto: Diciembre del año actual
+    # Rango por defecto: mes actual del año actual
     today = date.today()
     yr = today.year
-    start = date(yr, 12, 1)
-    end = date(yr, 12, 31)
+    mo = today.month
+    start = date(yr, mo, 1)
+    # Last day of the month
+    if mo == 12:
+        end = date(yr, 12, 31)
+    else:
+        end = date(yr, mo + 1, 1) - timedelta(days=1)
 
     # Opciones dinámicas (leads y agentes) desde schedule.csv
     leads = sorted(list({str(x) for x in SCHEDULE_DF["lead"].tolist()}))
