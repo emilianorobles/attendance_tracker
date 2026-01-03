@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
 
+from ..storage import sync_actuals_to_r2, is_r2_enabled
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 # Token for protecting the download endpoint.
@@ -87,4 +89,12 @@ async def upload_actuals(
     with open(ACTUALS_PATH, "wb") as f:
         f.write(content)
 
-    return {"ok": True, "message": f"Uploaded {file.filename} successfully", "rows": len(lines) - 1}
+    # Sync to R2 for persistence across dyno restarts
+    r2_synced = sync_actuals_to_r2()
+    
+    return {
+        "ok": True,
+        "message": f"Uploaded {file.filename} successfully",
+        "rows": len(lines) - 1,
+        "r2_synced": r2_synced,
+    }

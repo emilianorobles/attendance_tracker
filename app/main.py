@@ -6,6 +6,7 @@ from datetime import date
 import json
 from pathlib import Path
 
+from .storage import sync_from_r2
 from .logic import SCHEDULE_DF
 from .database import init_db
 from .routes.attendance import router as attendance_router
@@ -21,6 +22,9 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 # Templates
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+# Sync files from R2 on startup (before init_db)
+sync_from_r2()
 
 # Init DB
 init_db()
