@@ -1,7 +1,8 @@
 import os
 import sqlite3
-from datetime import date
-from typing import Dict, Tuple, Any
+from datetime import date, datetime
+from typing import Dict, Tuple, Any, Optional, List
+import pandas as pd
 
 from .storage import sync_db_to_r2
 
@@ -45,6 +46,34 @@ def init_db():
             )
             """
         )
+        # Schedule versions table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_versions (
+                id SERIAL PRIMARY KEY,
+                effective_from DATE NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                note TEXT
+            )
+            """
+        )
+        # Schedule entries linked to versions
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_entries (
+                id SERIAL PRIMARY KEY,
+                version_id INTEGER NOT NULL REFERENCES schedule_versions(id),
+                agent_id TEXT NOT NULL,
+                shift TEXT,
+                name TEXT NOT NULL,
+                lead TEXT,
+                working_days TEXT,
+                days_off TEXT,
+                expected_start TEXT,
+                expected_end TEXT
+            )
+            """
+        )
         con.commit()
         cur.close()
         con.close()
@@ -64,8 +93,206 @@ def init_db():
             )
             """
         )
+        # Schedule versions table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                effective_from TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                note TEXT
+            )
+            """
+        )
+        # Schedule entries linked to versions
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schedule_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                version_id INTEGER NOT NULL,
+                agent_id TEXT NOT NULL,
+                shift TEXT,
+                name TEXT NOT NULL,
+                lead TEXT,
+                working_days TEXT,
+                days_off TEXT,
+                expected_start TEXT,
+                expected_end TEXT,
+                FOREIGN KEY (version_id) REFERENCES schedule_versions(id)
+            )
+            """
+        )
         con.commit()
         con.close()
+
+
+# ============ Schedule Version Functions ============
+
+def save_schedule_version(df: pd.DataFrame, effective_from: date, note: str = "") -> int:
+    """
+    Save a new schedule version to the database.
+    Returns the version_id.
+    """
+    ts = datetime.now().isoformat(timespec="seconds")
+    
+    if USE_POSTGRES:
+        con = _get_pg_connection()
+        cur = con.cursor()
+        cur.execute(
+            "INSERT INTO schedule_versions(effective_from, created_at, note) VALUES(%s, %s, %s) RETURNING id",
+            (effective_from.isoformat(), ts, note)
+        )
+        version_id = cur.fetchone()[0]
+        
+        # Insert all schedule entries
+        for _, row in df.iterrows():
+            cur.execute(
+                """INSERT INTO schedule_entries(version_id, agent_id, shift, name, lead, 
+                   working_days, days_off, expected_start, expected_end) 
+                   VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (version_id, str(row.get("agent_id", "")), str(row.get("Shift", "")),
+                 str(row.get("name", "")), str(row.get("lead", "")),
+                 str(row.get("working_days", "")), str(row.get("days_off", "")),
+                 str(row.get("expected_start", "")), str(row.get("expected_end", "")))
+            )
+        con.commit()
+        cur.close()
+        con.close()
+    else:
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute(
+            "INSERT INTO schedule_versions(effective_from, created_at, note) VALUES(?, ?, ?)",
+            (effective_from.isoformat(), ts, note)
+        )
+        version_id = cur.lastrowid
+        
+        # Insert all schedule entries
+        for _, row in df.iterrows():
+            cur.execute(
+                """INSERT INTO schedule_entries(version_id, agent_id, shift, name, lead,
+                   working_days, days_off, expected_start, expected_end)
+                   VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (version_id, str(row.get("agent_id", "")), str(row.get("Shift", "")),
+                 str(row.get("name", "")), str(row.get("lead", "")),
+                 str(row.get("working_days", "")), str(row.get("days_off", "")),
+                 str(row.get("expected_start", "")), str(row.get("expected_end", "")))
+            )
+        con.commit()
+        con.close()
+        sync_db_to_r2()
+    
+    return version_id
+
+
+def get_schedule_version_for_date(target_date: date) -> Optional[int]:
+    """
+    Get the version_id of the schedule that was effective on target_date.
+    Returns the version with the largest effective_from <= target_date.
+    """
+    if USE_POSTGRES:
+        con = _get_pg_connection()
+        cur = con.cursor()
+        cur.execute(
+            """SELECT id FROM schedule_versions 
+               WHERE effective_from <= %s 
+               ORDER BY effective_from DESC LIMIT 1""",
+            (target_date.isoformat(),)
+        )
+        row = cur.fetchone()
+        cur.close()
+        con.close()
+        return row[0] if row else None
+    else:
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute(
+            """SELECT id FROM schedule_versions 
+               WHERE effective_from <= ? 
+               ORDER BY effective_from DESC LIMIT 1""",
+            (target_date.isoformat(),)
+        )
+        row = cur.fetchone()
+        con.close()
+        return row[0] if row else None
+
+
+def get_schedule_entries_for_version(version_id: int) -> List[Dict[str, Any]]:
+    """Get all schedule entries for a specific version."""
+    if USE_POSTGRES:
+        con = _get_pg_connection()
+        cur = con.cursor()
+        cur.execute(
+            """SELECT agent_id, shift, name, lead, working_days, days_off, 
+                      expected_start, expected_end 
+               FROM schedule_entries WHERE version_id = %s""",
+            (version_id,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        con.close()
+    else:
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute(
+            """SELECT agent_id, shift, name, lead, working_days, days_off,
+                      expected_start, expected_end
+               FROM schedule_entries WHERE version_id = ?""",
+            (version_id,)
+        )
+        rows = cur.fetchall()
+        con.close()
+    
+    return [
+        {
+            "agent_id": r[0], "Shift": r[1], "name": r[2], "lead": r[3],
+            "working_days": r[4], "days_off": r[5],
+            "expected_start": r[6], "expected_end": r[7]
+        }
+        for r in rows
+    ]
+
+
+def get_schedule_for_date(target_date: date) -> Optional[pd.DataFrame]:
+    """
+    Get the schedule DataFrame that was effective on target_date.
+    Returns None if no schedule version exists for that date.
+    """
+    version_id = get_schedule_version_for_date(target_date)
+    if version_id is None:
+        return None
+    
+    entries = get_schedule_entries_for_version(version_id)
+    if not entries:
+        return None
+    
+    return pd.DataFrame(entries)
+
+
+def get_all_schedule_versions() -> List[Dict[str, Any]]:
+    """Get all schedule versions with their effective dates."""
+    if USE_POSTGRES:
+        con = _get_pg_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id, effective_from, created_at, note FROM schedule_versions ORDER BY effective_from DESC"
+        )
+        rows = cur.fetchall()
+        cur.close()
+        con.close()
+    else:
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id, effective_from, created_at, note FROM schedule_versions ORDER BY effective_from DESC"
+        )
+        rows = cur.fetchall()
+        con.close()
+    
+    return [
+        {"id": r[0], "effective_from": r[1], "created_at": r[2], "note": r[3]}
+        for r in rows
+    ]
 
 
 def upsert_justification(agent_id: str, day: date, typ: str, note: str, lead: str):

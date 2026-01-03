@@ -3,7 +3,7 @@ from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, Any, Tuple, List
 
 from .utils import parse_hhmm_or_hhmmss, weekday_token, parse_days_list
-from .database import get_justifications_map
+from .database import get_justifications_map, get_schedule_for_date
 
 CSV_SCHEDULE = "schedule.csv"
 CSV_ACTUALS = "actuals.csv"
@@ -15,6 +15,12 @@ def load_schedule() -> pd.DataFrame:
       agent_id, Shift, name, lead, working_days, days_off, expected_start, expected_end
     """
     df = pd.read_csv(CSV_SCHEDULE)
+    return _process_schedule_df(df)
+
+
+def _process_schedule_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Process a schedule DataFrame, adding computed columns."""
+    df = df.copy()
     df["agent_id"] = df["agent_id"].astype(str).str.strip()
     df["Shift"] = df["Shift"].astype(str).str.strip()
     df["name"] = df["name"].astype(str).str.strip()
@@ -24,6 +30,21 @@ def load_schedule() -> pd.DataFrame:
     df["expected_start_t"] = df["expected_start"].apply(parse_hhmm_or_hhmmss)
     df["expected_end_t"] = df["expected_end"].apply(parse_hhmm_or_hhmmss)
     df["is_night"] = df["Shift"].str.lower().eq("night")
+    return df
+
+
+def get_schedule_for_day(target_date: date) -> pd.DataFrame:
+    """
+    Get the schedule that was effective on target_date.
+    First checks the database for versioned schedules, then falls back to CSV.
+    """
+    # Try to get versioned schedule from database
+    db_schedule = get_schedule_for_date(target_date)
+    if db_schedule is not None and not db_schedule.empty:
+        return _process_schedule_df(db_schedule)
+    
+    # Fall back to CSV file (for dates before any versioned schedule)
+    return SCHEDULE_DF
     return df
 
 def load_actuals() -> pd.DataFrame:
@@ -177,13 +198,9 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
       - días (A/D/U/J/V/O)
       - sumas: late_minutes, delays, vacations, justified, unjustified
       - justified_delays_sum: cuenta días originalmente D que terminaron A o J por override
+    
+    Uses versioned schedules: for each day, looks up the schedule that was effective on that date.
     """
-    sched = SCHEDULE_DF.copy()
-    if lead:
-        sched = sched[sched["lead"].str.lower() == lead.strip().lower()]
-    if agent_id:
-        sched = sched[sched["agent_id"] == str(agent_id).strip()]
-
     just_map = get_justifications_map(start, end)
 
     # Index de actuals por (agent_id, date)
@@ -208,19 +225,62 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                 "actual_end_t": aend,
             })
 
+    # Cache for schedule by date to avoid repeated lookups
+    schedule_cache: Dict[date, pd.DataFrame] = {}
+    
+    def get_schedule_cached(d: date) -> pd.DataFrame:
+        if d not in schedule_cache:
+            schedule_cache[d] = get_schedule_for_day(d)
+        return schedule_cache[d]
+
+    # Collect all unique agents from all schedules in the date range
+    all_agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> latest agent info
+    cur = start
+    while cur <= end:
+        sched = get_schedule_cached(cur)
+        for _, row in sched.iterrows():
+            aid = str(row["agent_id"])
+            if aid not in all_agents:
+                all_agents[aid] = {"name": row["name"], "lead": row["lead"]}
+        cur += timedelta(days=1)
+
+    # Filter agents by lead/agent_id
+    if lead:
+        lead_lower = lead.strip().lower()
+        # Get base schedule to check leads
+        base_sched = get_schedule_cached(start)
+        valid_agents = set(base_sched[base_sched["lead"].str.lower() == lead_lower]["agent_id"].tolist())
+        all_agents = {k: v for k, v in all_agents.items() if k in valid_agents}
+    
+    if agent_id:
+        target_aid = str(agent_id).strip()
+        all_agents = {k: v for k, v in all_agents.items() if k == target_aid}
+
     agents_out = []
-    for _, arow in sched.iterrows():
+    for aid, agent_info in all_agents.items():
         days = []
         late_sum = delays = vacations = justified = unjustified = justified_delays_sum = 0
         cur = start
+        
         # normalize status_filter: accept comma-separated, case-insensitive
         allowed_statuses = None
         if status_filter is not None:
             allowed_statuses = {s.strip().upper() for s in str(status_filter).split(",") if s.strip()}
 
         while cur <= end:
-            arow_actual = actuals_idx.get((arow["agent_id"], cur))
+            # Get schedule for this specific day
+            day_sched = get_schedule_cached(cur)
+            agent_rows = day_sched[day_sched["agent_id"] == aid]
+            
+            if agent_rows.empty:
+                # Agent not in schedule for this day - skip
+                cur += timedelta(days=1)
+                continue
+            
+            arow = agent_rows.iloc[0]
+            arow_actual = actuals_idx.get((aid, cur))
             item = compute_day_status(arow, cur, arow_actual, just_map)
+            
             # Match either the visible `status` or the computed `original_status`.
             match = True
             if allowed_statuses is not None:
@@ -250,9 +310,9 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
 
         if days:  # Only include agents with matching days
             agents_out.append({
-                "agent_id": arow["agent_id"],
-                "name": arow["name"],
-                "lead": arow["lead"],
+                "agent_id": aid,
+                "name": agent_info["name"],
+                "lead": agent_info["lead"],
                 "days": days,
                 "late_minutes_sum": late_sum,
                 "delays_sum": delays,

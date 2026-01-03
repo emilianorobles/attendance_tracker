@@ -84,7 +84,7 @@ def upload_to_r2(local_path: Path, remote_key: str) -> bool:
 
 
 def sync_from_r2():
-    """Download actuals.csv and attendance.db from R2 on startup."""
+    """Download actuals.csv, schedule.csv, and attendance.db from R2 on startup."""
     if not R2_ENABLED:
         print("[R2] R2 storage not configured, using local files only")
         return
@@ -95,6 +95,10 @@ def sync_from_r2():
     actuals_path = Path("actuals.csv")
     download_from_r2("actuals.csv", actuals_path)
     
+    # Download schedule.csv
+    schedule_path = Path("schedule.csv")
+    download_from_r2("schedule.csv", schedule_path)
+    
     # Download attendance.db
     db_path = Path("attendance.db")
     download_from_r2("attendance.db", db_path)
@@ -103,6 +107,11 @@ def sync_from_r2():
 def sync_actuals_to_r2() -> bool:
     """Upload actuals.csv to R2 after it's updated."""
     return upload_to_r2(Path("actuals.csv"), "actuals.csv")
+
+
+def sync_schedule_to_r2() -> bool:
+    """Upload schedule.csv to R2 after it's updated."""
+    return upload_to_r2(Path("schedule.csv"), "schedule.csv")
 
 
 def sync_db_to_r2() -> bool:

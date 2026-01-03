@@ -103,7 +103,8 @@
       <div class="title-secondary" id="titleMonth"></div>
     </div>
     <div class="actions">
-      <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Upload Actuals</button>
+      <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Actuals</button>
+      <button class="btn" id="btnUploadSchedule" title="Upload schedule.csv">📅 Schedule</button>
       <button class="btn" id="btnJustificationsReport">Justifications Report</button>
       <button class="btn accent" id="btnExport">Export</button>
       <button class="mode-toggle" id="modeToggle" title="Toggle Light/Dark Mode">🌙</button>
@@ -196,8 +197,8 @@
       Upload a new <code>actuals.csv</code> file to update attendance data.
     </p>
     <div class="row">
-      <label>Admin Token</label>
-      <input id="uploadToken" type="password" placeholder="Enter admin token" />
+      <label>Password</label>
+      <input id="uploadToken" type="password" placeholder="Enter admin password" />
     </div>
     <div id="dropZone" style="border: 2px dashed var(--border); border-radius: 10px; padding: 32px; text-align: center; margin: 12px 0; cursor: pointer; transition: .2s;">
       <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
@@ -210,6 +211,40 @@
     <footer>
       <button class="btn" id="uploadCancel">Cancel</button>
       <button class="btn accent" id="uploadSubmit" disabled>Upload</button>
+    </footer>
+  </div>
+</dialog>
+
+<!-- Upload Schedule Modal -->
+<dialog id="scheduleModal">
+  <div class="modal" style="min-width: 400px;">
+    <h3>📅 Upload Schedule CSV</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
+      Upload a new <code>schedule.csv</code> file to update agent schedules.<br>
+      <strong>Important:</strong> Set the effective date to control when the new schedule applies.
+    </p>
+    <div class="row">
+      <label>Password</label>
+      <input id="scheduleToken" type="password" placeholder="Enter admin password" />
+    </div>
+    <div class="row">
+      <label>Effective Date</label>
+      <input id="scheduleEffectiveDate" type="date" title="Schedule applies from this date onwards" />
+    </div>
+    <div style="font-size: 12px; color: var(--muted); margin: 4px 0 8px 0;">
+      ℹ️ Attendance before this date will use the previous schedule.
+    </div>
+    <div id="scheduleDropZone" style="border: 2px dashed var(--border); border-radius: 10px; padding: 32px; text-align: center; margin: 12px 0; cursor: pointer; transition: .2s;">
+      <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
+      <div>Drag & drop <strong>schedule.csv</strong> here</div>
+      <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">or click to browse</div>
+      <input type="file" id="scheduleFileInput" accept=".csv" style="display: none;" />
+    </div>
+    <div id="scheduleFileName" style="font-size: 13px; color: var(--muted); margin-bottom: 8px;"></div>
+    <div id="scheduleUploadStatus" style="font-size: 13px; margin-bottom: 8px;"></div>
+    <footer>
+      <button class="btn" id="scheduleCancel">Cancel</button>
+      <button class="btn accent" id="scheduleSubmit" disabled>Upload</button>
     </footer>
   </div>
 </dialog>
@@ -665,7 +700,7 @@
       if (!selectedFile) return;
       const token = uploadToken.value.trim();
       if (!token) {
-        uploadStatus.textContent = '❌ Please enter the admin token';
+        uploadStatus.textContent = '❌ Please enter the admin password';
         uploadStatus.style.color = 'var(--unjust)';
         return;
       }
@@ -701,6 +736,135 @@
         uploadStatus.textContent = `❌ Error: ${err.message}`;
         uploadStatus.style.color = 'var(--unjust)';
         uploadSubmit.disabled = false;
+      }
+    });
+  })();
+
+  // === Schedule Upload ===
+  (function() {
+    const scheduleModal = document.getElementById('scheduleModal');
+    const scheduleToken = document.getElementById('scheduleToken');
+    const scheduleEffectiveDate = document.getElementById('scheduleEffectiveDate');
+    const scheduleDropZone = document.getElementById('scheduleDropZone');
+    const scheduleFileInput = document.getElementById('scheduleFileInput');
+    const scheduleFileName = document.getElementById('scheduleFileName');
+    const scheduleUploadStatus = document.getElementById('scheduleUploadStatus');
+    const scheduleCancel = document.getElementById('scheduleCancel');
+    const scheduleSubmit = document.getElementById('scheduleSubmit');
+
+    let selectedScheduleFile = null;
+
+    // Open modal - set default effective date to today
+    document.getElementById('btnUploadSchedule').addEventListener('click', () => {
+      selectedScheduleFile = null;
+      scheduleFileInput.value = '';
+      scheduleFileName.textContent = '';
+      scheduleUploadStatus.textContent = '';
+      scheduleUploadStatus.style.color = 'var(--muted)';
+      scheduleSubmit.disabled = true;
+      // Set default to today
+      const today = new Date();
+      scheduleEffectiveDate.value = today.toISOString().split('T')[0];
+      scheduleModal.showModal();
+    });
+
+    // Close modal
+    scheduleCancel.addEventListener('click', () => scheduleModal.close());
+
+    // Click on drop zone to browse
+    scheduleDropZone.addEventListener('click', () => scheduleFileInput.click());
+
+    // File selected via browse
+    scheduleFileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleScheduleFile(e.target.files[0]);
+      }
+    });
+
+    // Drag and drop
+    scheduleDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      scheduleDropZone.style.borderColor = 'var(--accent)';
+      scheduleDropZone.style.background = 'rgba(59, 130, 246, 0.1)';
+    });
+
+    scheduleDropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      scheduleDropZone.style.borderColor = 'var(--border)';
+      scheduleDropZone.style.background = 'transparent';
+    });
+
+    scheduleDropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      scheduleDropZone.style.borderColor = 'var(--border)';
+      scheduleDropZone.style.background = 'transparent';
+      if (e.dataTransfer.files.length > 0) {
+        handleScheduleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    function handleScheduleFile(file) {
+      if (!file.name.toLowerCase().endsWith('.csv')) {
+        scheduleUploadStatus.textContent = '❌ Please select a .csv file';
+        scheduleUploadStatus.style.color = 'var(--unjust)';
+        scheduleSubmit.disabled = true;
+        return;
+      }
+      selectedScheduleFile = file;
+      scheduleFileName.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      scheduleUploadStatus.textContent = '';
+      scheduleSubmit.disabled = false;
+    }
+
+    // Submit upload
+    scheduleSubmit.addEventListener('click', async () => {
+      if (!selectedScheduleFile) return;
+      const token = scheduleToken.value.trim();
+      if (!token) {
+        scheduleUploadStatus.textContent = '❌ Please enter the admin password';
+        scheduleUploadStatus.style.color = 'var(--unjust)';
+        return;
+      }
+      
+      const effectiveDate = scheduleEffectiveDate.value;
+      if (!effectiveDate) {
+        scheduleUploadStatus.textContent = '❌ Please select an effective date';
+        scheduleUploadStatus.style.color = 'var(--unjust)';
+        return;
+      }
+
+      scheduleSubmit.disabled = true;
+      scheduleUploadStatus.textContent = '⏳ Uploading...';
+      scheduleUploadStatus.style.color = 'var(--muted)';
+
+      const formData = new FormData();
+      formData.append('token', token);
+      formData.append('file', selectedScheduleFile);
+      formData.append('effective_date', effectiveDate);
+
+      try {
+        const res = await fetch('/admin/upload-schedule', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          scheduleUploadStatus.textContent = `✅ ${data.message}`;
+          scheduleUploadStatus.style.color = 'var(--ok)';
+          setTimeout(() => {
+            scheduleModal.close();
+            // Reload data to reflect new schedule
+            loadAttendance().catch(e => console.error('Reload failed', e));
+          }, 2000);
+        } else {
+          scheduleUploadStatus.textContent = `❌ ${data.detail || 'Upload failed'}`;
+          scheduleUploadStatus.style.color = 'var(--unjust)';
+          scheduleSubmit.disabled = false;
+        }
+      } catch (err) {
+        scheduleUploadStatus.textContent = `❌ Error: ${err.message}`;
+        scheduleUploadStatus.style.color = 'var(--unjust)';
+        scheduleSubmit.disabled = false;
       }
     });
   })();
