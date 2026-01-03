@@ -53,6 +53,34 @@ def delete_justify(agent_id: str = Query(...), date: str = Query(..., descriptio
     delete_justification(agent_id, day)
     return {"ok": True, "message": "Justification removed"}
 
+
+@router.get("/schedules")
+def get_schedules(lead: str = Query(None)):
+    """Get all agent schedules with their work days, days off, and expected times."""
+    sched = SCHEDULE_DF.copy()
+    
+    if lead:
+        sched = sched[sched["lead"].str.lower() == lead.strip().lower()]
+    
+    # Sort by lead, then by name
+    sched = sched.sort_values(["lead", "name"])
+    
+    agents = []
+    for _, row in sched.iterrows():
+        agents.append({
+            "agent_id": str(row["agent_id"]),
+            "name": str(row["name"]),
+            "lead": str(row["lead"]),
+            "shift": str(row["Shift"]),
+            "working_days": str(row["working_days"]),
+            "days_off": str(row["days_off"]),
+            "expected_start": str(row["expected_start"]),
+            "expected_end": str(row["expected_end"]),
+        })
+    
+    return {"agents": agents, "total": len(agents)}
+
+
 @router.get("/export.xlsx")
 def export_excel(
     start: str = Query(..., description="YYYY-MM-DD"),
