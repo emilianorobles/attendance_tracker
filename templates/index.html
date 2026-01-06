@@ -106,7 +106,8 @@
     </div>
     <div class="actions">
       <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Actuals</button>
-      <button class="btn" id="btnUploadSchedule" title="Upload schedule.csv">📅 Schedule</button>
+      <button class="btn" id="btnUploadSchedule" title="Upload schedule.csv">📅 Upload Schedule</button>
+      <button class="btn" id="btnViewSchedules" title="View all schedules">📋 View Schedules</button>
       <button class="btn" id="btnJustificationsReport">Justifications Report</button>
       <button class="btn accent" id="btnExport">Export</button>
       <button class="mode-toggle" id="modeToggle" title="Toggle Light/Dark Mode">🌙</button>
@@ -247,6 +248,34 @@
     <footer>
       <button class="btn" id="scheduleCancel">Cancel</button>
       <button class="btn accent" id="scheduleSubmit" disabled>Upload</button>
+    </footer>
+  </div>
+</dialog>
+
+<!-- View Schedules Modal -->
+<dialog id="schedulesViewModal">
+  <div class="modal" style="min-width: 700px; max-width: 90vw;">
+    <h3>📋 Service Desk Technician Schedules</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0 12px 0;">
+      Current schedules for all agents from schedule.csv
+    </p>
+    <div style="max-height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table id="schedulesTable" style="margin: 0; min-width: 100%;">
+        <thead>
+          <tr>
+            <th class="sortable" data-column="agent_id" data-label="Agent ID">Agent ID ↕</th>
+            <th class="sortable" data-column="name" data-label="Name">Name ↕</th>
+            <th class="sortable" data-column="lead" data-label="Lead">Lead ↕</th>
+            <th class="sortable" data-column="expected_start" data-label="Expected Start">Expected Start ↕</th>
+            <th class="sortable" data-column="expected_end" data-label="Expected End">Expected End ↕</th>
+            <th class="sortable" data-column="shift" data-label="Shift">Shift ↕</th>
+          </tr>
+        </thead>
+        <tbody id="schedulesTableBody"></tbody>
+      </table>
+    </div>
+    <footer style="margin-top: 16px;">
+      <button class="btn accent" id="schedulesViewClose">Close</button>
     </footer>
   </div>
 </dialog>
@@ -873,6 +902,105 @@
         scheduleSubmit.disabled = false;
       }
     });
+  })();
+
+  // === View Schedules ===
+  (function() {
+    const schedulesViewModal = document.getElementById('schedulesViewModal');
+    const schedulesViewClose = document.getElementById('schedulesViewClose');
+    const schedulesTableBody = document.getElementById('schedulesTableBody');
+    let schedulesData = [];
+    let sortColumn = null;
+    let sortDirection = 'asc';
+
+    function renderSchedules() {
+      if (schedulesData.length === 0) {
+        schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted);">No schedules found</td></tr>';
+        return;
+      }
+
+      schedulesTableBody.innerHTML = schedulesData.map(s => `
+        <tr>
+          <td>${s.agent_id}</td>
+          <td>${s.name}</td>
+          <td>${s.lead}</td>
+          <td>${s.expected_start}</td>
+          <td>${s.expected_end}</td>
+          <td>${s.shift}</td>
+        </tr>
+      `).join('');
+    }
+
+    function sortSchedules(column) {
+      if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortColumn = column;
+        sortDirection = 'asc';
+      }
+
+      schedulesData.sort((a, b) => {
+        let aVal = String(a[column] || '').toLowerCase();
+        let bVal = String(b[column] || '').toLowerCase();
+        
+        if (sortDirection === 'asc') {
+          return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        } else {
+          return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+        }
+      });
+
+      // Update sort indicators
+      document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
+        const col = th.dataset.column;
+        const label = th.dataset.label;
+        if (col === column) {
+          th.textContent = label + ' ' + (sortDirection === 'asc' ? '↑' : '↓');
+        } else {
+          th.textContent = label + ' ↕';
+        }
+      });
+
+      renderSchedules();
+    }
+
+    // Open modal and load schedules
+    document.getElementById('btnViewSchedules').addEventListener('click', async () => {
+      schedulesViewModal.showModal();
+      schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">⏳ Loading...</td></tr>';
+      
+      try {
+        const res = await fetch('/schedules');
+        const data = await res.json();
+        
+        if (res.ok && data.schedules) {
+          schedulesData = data.schedules;
+          sortColumn = null;
+          sortDirection = 'asc';
+          // Reset sort indicators
+          document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
+            const label = th.dataset.label;
+            th.textContent = label + ' ↕';
+          });
+          renderSchedules();
+        } else {
+          schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--unjust);">Failed to load schedules</td></tr>';
+        }
+      } catch (err) {
+        schedulesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--unjust);">❌ Error: ${err.message}</td></tr>`;
+      }
+    });
+
+    // Add click handlers for sortable columns
+    document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const column = th.dataset.column;
+        sortSchedules(column);
+      });
+    });
+
+    // Close modal
+    schedulesViewClose.addEventListener('click', () => schedulesViewModal.close());
   })();
 </script>
 </body>
