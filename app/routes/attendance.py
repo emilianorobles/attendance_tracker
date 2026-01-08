@@ -215,6 +215,21 @@ def export_excel(
         headers=headers
     )
 
+@router.get("/schedules")
+def get_schedules():
+    """Return all schedules from schedule.csv"""
+    schedules = []
+    for _, row in SCHEDULE_DF.iterrows():
+        schedules.append({
+            "agent_id": str(row["agent_id"]),
+            "name": str(row["name"]),
+            "lead": str(row["lead"]),
+            "expected_start": str(row["expected_start"]),
+            "expected_end": str(row["expected_end"]),
+            "shift": str(row.get("Shift", "")),
+        })
+    return {"schedules": schedules}
+
 @router.get("/justifications_report.xlsx")
 def justifications_report():
     import sqlite3

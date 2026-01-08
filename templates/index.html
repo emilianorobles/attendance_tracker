@@ -108,6 +108,7 @@
       <button class="btn" id="btnViewSchedules" title="View agent schedules">👥 Schedules</button>
       <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Actuals</button>
       <button class="btn" id="btnUploadSchedule" title="Upload schedule.csv">📅 Upload Schedule</button>
+      <button class="btn" id="btnViewSchedules" title="View all schedules">📋 View Schedules</button>
       <button class="btn" id="btnJustificationsReport">Justifications Report</button>
       <button class="btn accent" id="btnExport">Export</button>
       <button class="mode-toggle" id="modeToggle" title="Toggle Light/Dark Mode">🌙</button>
@@ -253,37 +254,29 @@
 </dialog>
 
 <!-- View Schedules Modal -->
-<dialog id="viewSchedulesModal">
-  <div class="modal" style="min-width: 900px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <h3 style="margin: 0;">👥 Agent Schedules</h3>
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <input id="scheduleSearch" type="text" placeholder="🔍 Search agents..." style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text); width: 200px;" />
-        <select id="scheduleLeadFilter" style="padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text);">
-          <option value="">All Leads</option>
-        </select>
-      </div>
-    </div>
-    <div style="flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px;">
-      <table id="schedulesTable" style="width: 100%; border-collapse: collapse; font-size: 13px;">
-        <thead style="position: sticky; top: 0; background: var(--header-bg); z-index: 1;">
+<dialog id="schedulesViewModal">
+  <div class="modal" style="min-width: 700px; max-width: 90vw;">
+    <h3>📋 Service Desk Technician Schedules</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0 12px 0;">
+      Current schedules for all agents from schedule.csv
+    </p>
+    <div style="max-height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table id="schedulesTable" style="margin: 0; min-width: 100%;">
+        <thead>
           <tr>
-            <th style="padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border);">ID</th>
-            <th style="padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border);">Name</th>
-            <th style="padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border);">Lead</th>
-            <th style="padding: 10px 8px; text-align: center; border-bottom: 1px solid var(--border);">Shift</th>
-            <th style="padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border);">Working Days</th>
-            <th style="padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border);">Days Off</th>
-            <th style="padding: 10px 8px; text-align: center; border-bottom: 1px solid var(--border);">Start</th>
-            <th style="padding: 10px 8px; text-align: center; border-bottom: 1px solid var(--border);">End</th>
+            <th class="sortable" data-column="agent_id" data-label="Agent ID">Agent ID ↕</th>
+            <th class="sortable" data-column="name" data-label="Name">Name ↕</th>
+            <th class="sortable" data-column="lead" data-label="Lead">Lead ↕</th>
+            <th class="sortable" data-column="expected_start" data-label="Expected Start">Expected Start ↕</th>
+            <th class="sortable" data-column="expected_end" data-label="Expected End">Expected End ↕</th>
+            <th class="sortable" data-column="shift" data-label="Shift">Shift ↕</th>
           </tr>
         </thead>
         <tbody id="schedulesTableBody"></tbody>
       </table>
     </div>
-    <div id="schedulesCount" style="font-size: 12px; color: var(--muted); margin-top: 8px;"></div>
-    <footer style="margin-top: 12px;">
-      <button class="btn" id="viewSchedulesClose">Close</button>
+    <footer style="margin-top: 16px;">
+      <button class="btn accent" id="schedulesViewClose">Close</button>
     </footer>
   </div>
 </dialog>
@@ -914,115 +907,101 @@
 
   // === View Schedules ===
   (function() {
-    const modal = document.getElementById('viewSchedulesModal');
-    const tbody = document.getElementById('schedulesTableBody');
-    const countEl = document.getElementById('schedulesCount');
-    const searchInput = document.getElementById('scheduleSearch');
-    const leadFilter = document.getElementById('scheduleLeadFilter');
-    const closeBtn = document.getElementById('viewSchedulesClose');
+    const schedulesViewModal = document.getElementById('schedulesViewModal');
+    const schedulesViewClose = document.getElementById('schedulesViewClose');
+    const schedulesTableBody = document.getElementById('schedulesTableBody');
+    let schedulesData = [];
+    let sortColumn = null;
+    let sortDirection = 'asc';
 
-    let allSchedules = [];
-    let uniqueLeads = [];
+    function renderSchedules() {
+      if (schedulesData.length === 0) {
+        schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted);">No schedules found</td></tr>';
+        return;
+      }
 
-    // Shift badge colors
-    const shiftColors = {
-      'morning': { bg: 'rgba(251, 191, 36, 0.3)', border: 'rgba(251, 191, 36, 0.6)', text: '#fbbf24' },
-      'afternoon': { bg: 'rgba(59, 130, 246, 0.3)', border: 'rgba(59, 130, 246, 0.6)', text: '#3b82f6' },
-      'night': { bg: 'rgba(139, 92, 246, 0.3)', border: 'rgba(139, 92, 246, 0.6)', text: '#8b5cf6' },
-    };
-
-    function getShiftStyle(shift) {
-      const s = (shift || '').toLowerCase();
-      return shiftColors[s] || { bg: 'rgba(107, 114, 128, 0.3)', border: 'rgba(107, 114, 128, 0.6)', text: '#9ca3af' };
+      schedulesTableBody.innerHTML = schedulesData.map(s => `
+        <tr>
+          <td>${s.agent_id}</td>
+          <td>${s.name}</td>
+          <td>${s.lead}</td>
+          <td>${s.expected_start}</td>
+          <td>${s.expected_end}</td>
+          <td>${s.shift}</td>
+        </tr>
+      `).join('');
     }
 
-    async function loadSchedules() {
+    function sortSchedules(column) {
+      if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortColumn = column;
+        sortDirection = 'asc';
+      }
+
+      schedulesData.sort((a, b) => {
+        let aVal = String(a[column] || '').toLowerCase();
+        let bVal = String(b[column] || '').toLowerCase();
+        
+        if (sortDirection === 'asc') {
+          return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        } else {
+          return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
+        }
+      });
+
+      // Update sort indicators
+      document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
+        const col = th.dataset.column;
+        const label = th.dataset.label;
+        if (col === column) {
+          th.textContent = label + ' ' + (sortDirection === 'asc' ? '↑' : '↓');
+        } else {
+          th.textContent = label + ' ↕';
+        }
+      });
+
+      renderSchedules();
+    }
+
+    // Open modal and load schedules
+    document.getElementById('btnViewSchedules').addEventListener('click', async () => {
+      schedulesViewModal.showModal();
+      schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">⏳ Loading...</td></tr>';
+      
       try {
         const res = await fetch('/schedules');
         const data = await res.json();
-        allSchedules = data.agents || [];
         
-        // Extract unique leads
-        uniqueLeads = [...new Set(allSchedules.map(a => a.lead))].sort();
-        
-        // Populate lead filter
-        leadFilter.innerHTML = '<option value="">All Leads</option>';
-        uniqueLeads.forEach(lead => {
-          const opt = document.createElement('option');
-          opt.value = lead;
-          opt.textContent = lead;
-          leadFilter.appendChild(opt);
-        });
-        
-        renderSchedules();
+        if (res.ok && data.schedules) {
+          schedulesData = data.schedules;
+          sortColumn = null;
+          sortDirection = 'asc';
+          // Reset sort indicators
+          document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
+            const label = th.dataset.label;
+            th.textContent = label + ' ↕';
+          });
+          renderSchedules();
+        } else {
+          schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--unjust);">Failed to load schedules</td></tr>';
+        }
       } catch (err) {
-        console.error('Failed to load schedules:', err);
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: var(--unjust);">Failed to load schedules</td></tr>';
+        schedulesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--unjust);">❌ Error: ${err.message}</td></tr>`;
       }
-    }
-
-    function renderSchedules() {
-      const searchTerm = searchInput.value.toLowerCase();
-      const leadValue = leadFilter.value;
-      
-      const filtered = allSchedules.filter(a => {
-        const matchesSearch = !searchTerm || 
-          a.name.toLowerCase().includes(searchTerm) || 
-          a.agent_id.toLowerCase().includes(searchTerm);
-        const matchesLead = !leadValue || a.lead === leadValue;
-        return matchesSearch && matchesLead;
-      });
-      
-      tbody.innerHTML = '';
-      
-      if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: var(--muted);">No agents found</td></tr>';
-        countEl.textContent = '0 agents';
-        return;
-      }
-      
-      filtered.forEach((agent, idx) => {
-        const tr = document.createElement('tr');
-        tr.style.background = idx % 2 === 0 ? 'transparent' : 'var(--even-row)';
-        
-        const shiftStyle = getShiftStyle(agent.shift);
-        
-        tr.innerHTML = `
-          <td style="padding: 8px; border-bottom: 1px solid var(--border);">${agent.agent_id}</td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border); font-weight: 500;">${agent.name}</td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border);">${agent.lead}</td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center;">
-            <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; background: ${shiftStyle.bg}; border: 1px solid ${shiftStyle.border}; color: ${shiftStyle.text};">
-              ${agent.shift}
-            </span>
-          </td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px;">${agent.working_days}</td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted);">${agent.days_off}</td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center; font-family: monospace;">${agent.expected_start}</td>
-          <td style="padding: 8px; border-bottom: 1px solid var(--border); text-align: center; font-family: monospace;">${agent.expected_end}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-      
-      countEl.textContent = `Showing ${filtered.length} of ${allSchedules.length} agents`;
-    }
-
-    // Event listeners
-    document.getElementById('btnViewSchedules').addEventListener('click', () => {
-      searchInput.value = '';
-      leadFilter.value = '';
-      loadSchedules();
-      modal.showModal();
     });
 
-    closeBtn.addEventListener('click', () => modal.close());
-    searchInput.addEventListener('input', renderSchedules);
-    leadFilter.addEventListener('change', renderSchedules);
-    
-    // Close on backdrop click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) modal.close();
+    // Add click handlers for sortable columns
+    document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const column = th.dataset.column;
+        sortSchedules(column);
+      });
     });
+
+    // Close modal
+    schedulesViewClose.addEventListener('click', () => schedulesViewModal.close());
   })();
 </script>
 </body>
