@@ -105,10 +105,9 @@
       <div class="title-secondary" id="titleMonth"></div>
     </div>
     <div class="actions">
-      <button class="btn" id="btnViewSchedules" title="View agent schedules">👥 Schedules</button>
+      <button class="btn" id="btnViewSchedules" title="View current agent schedules">👥 View Schedules</button>
       <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Actuals</button>
       <button class="btn" id="btnUploadSchedule" title="Upload schedule.csv">📅 Upload Schedule</button>
-      <button class="btn" id="btnViewSchedules" title="View all schedules">📋 View Schedules</button>
       <button class="btn" id="btnJustificationsReport">Justifications Report</button>
       <button class="btn accent" id="btnExport">Export</button>
       <button class="mode-toggle" id="modeToggle" title="Toggle Light/Dark Mode">🌙</button>
@@ -257,9 +256,12 @@
 <dialog id="schedulesViewModal">
   <div class="modal" style="min-width: 700px; max-width: 90vw;">
     <h3>📋 Service Desk Technician Schedules</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0 12px 0;">
-      Current schedules for all agents from schedule.csv
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0 4px 0;">
+      Current schedules for all agents
     </p>
+    <div id="scheduleEffectiveDateLegend" style="font-size: 12px; color: var(--muted); margin: 0 0 12px 0;">
+      Last uploaded: <span id="scheduleEffectiveDate">Loading...</span>
+    </div>
     <div style="max-height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
       <table id="schedulesTable" style="margin: 0; min-width: 100%;">
         <thead>
@@ -267,9 +269,11 @@
             <th class="sortable" data-column="agent_id" data-label="Agent ID">Agent ID ↕</th>
             <th class="sortable" data-column="name" data-label="Name">Name ↕</th>
             <th class="sortable" data-column="lead" data-label="Lead">Lead ↕</th>
+            <th class="sortable" data-column="shift" data-label="Shift">Shift ↕</th>
             <th class="sortable" data-column="expected_start" data-label="Expected Start">Expected Start ↕</th>
             <th class="sortable" data-column="expected_end" data-label="Expected End">Expected End ↕</th>
-            <th class="sortable" data-column="shift" data-label="Shift">Shift ↕</th>
+            <th class="sortable" data-column="working_days" data-label="Working Days">Working Days ↕</th>
+            <th class="sortable" data-column="days_off" data-label="Days Off">Days Off ↕</th>
           </tr>
         </thead>
         <tbody id="schedulesTableBody"></tbody>
@@ -914,7 +918,7 @@
 
     function renderSchedules() {
       if (schedulesData.length === 0) {
-        schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted);">No schedules found</td></tr>';
+        schedulesTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--muted);">No schedules found</td></tr>';
         return;
       }
 
@@ -923,9 +927,11 @@
           <td>${s.agent_id}</td>
           <td>${s.name}</td>
           <td>${s.lead}</td>
+          <td>${s.shift}</td>
           <td>${s.expected_start}</td>
           <td>${s.expected_end}</td>
-          <td>${s.shift}</td>
+          <td>${s.working_days}</td>
+          <td>${s.days_off}</td>
         </tr>
       `).join('');
     }
@@ -966,14 +972,34 @@
     // Open modal and load schedules
     document.getElementById('btnViewSchedules').addEventListener('click', async () => {
       schedulesViewModal.showModal();
-      schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center;">⏳ Loading...</td></tr>';
+      schedulesTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">⏳ Loading...</td></tr>';
+      document.getElementById('scheduleEffectiveDate').textContent = 'Loading...';
       
       try {
+        // Fetch schedules
         const res = await fetch('/schedules');
         const data = await res.json();
         
-        if (res.ok && data.schedules) {
-          schedulesData = data.schedules;
+        // Fetch schedule versions to get the latest effective date
+        try {
+          const versionsRes = await fetch('/schedule-versions?token=');
+          if (versionsRes.ok) {
+            const versionsData = await versionsRes.json();
+            if (versionsData.versions && versionsData.versions.length > 0) {
+              const latestVersion = versionsData.versions[0]; // Assuming first is latest
+              document.getElementById('scheduleEffectiveDate').textContent = latestVersion.effective_date || 'N/A';
+            } else {
+              document.getElementById('scheduleEffectiveDate').textContent = 'N/A';
+            }
+          } else {
+            document.getElementById('scheduleEffectiveDate').textContent = 'N/A';
+          }
+        } catch (err) {
+          document.getElementById('scheduleEffectiveDate').textContent = 'Unable to fetch';
+        }
+        
+        if (res.ok && data.agents) {
+          schedulesData = data.agents;
           sortColumn = null;
           sortDirection = 'asc';
           // Reset sort indicators
@@ -983,10 +1009,10 @@
           });
           renderSchedules();
         } else {
-          schedulesTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--unjust);">Failed to load schedules</td></tr>';
+          schedulesTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--unjust);">Failed to load schedules</td></tr>';
         }
       } catch (err) {
-        schedulesTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--unjust);">❌ Error: ${err.message}</td></tr>`;
+        schedulesTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--unjust);">❌ Error: ${err.message}</td></tr>`;
       }
     });
 
