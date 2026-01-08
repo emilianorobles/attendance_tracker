@@ -548,10 +548,8 @@
         td.className = "status-" + st;
         if (item && item.is_overridden) td.classList.add("ovr"); // ✔ resalta justificados/overrides
         if (item && item.tooltip && st === "D") { td.title = item.tooltip; }
-        // Don't allow clicking on future dates
-        if (st !== "-") {
-          td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d));
-        }
+        // Allow clicking on all dates including future ones
+        td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d));
         tr.appendChild(td);
       });
 

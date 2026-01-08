@@ -126,53 +126,44 @@ def compute_day_status(
     
     today = date.today()
 
-    # Future dates: return pending status (empty cell)
+    # Future dates: default to pending status, but check for overrides below
     if day > today:
-        return {
-            "agent_id": agent_id,
-            "name": name,
-            "lead": lead,
-            "date": day.isoformat(),
-            "status": "-",
-            "late_minutes": 0,
-            "overtime_minutes": 0,
-            "tooltip": None,
-            "original_status": "-",
-            "is_overridden": False,
-        }
-
-    # Base (estado original)
-    if dow in days_off:
-        original_status = "O"
+        original_status = "-"
         late_minutes = 0
         overtime_minutes = 0
-    else:
-        exp_iv = expected_interval_for_day(agent_row, day)
-        if exp_iv is None:
+    # Base (estado original)
+    elif day <= today:
+        if dow in days_off:
             original_status = "O"
             late_minutes = 0
             overtime_minutes = 0
         else:
-            exp_start, exp_end, is_night = exp_iv
-            act_iv = actual_interval_for_day(actual_row, day, is_night)
-            if act_iv is None:
-                original_status = "U"
+            exp_iv = expected_interval_for_day(agent_row, day)
+            if exp_iv is None:
+                original_status = "O"
                 late_minutes = 0
                 overtime_minutes = 0
             else:
-                act_start, act_end = act_iv
-                atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
-                salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
-                late_raw = atraso_entrada + salida_anticipada
-                overtime_minutes = max(0, int((exp_start - act_start).total_seconds() // 60)) + \
-                                   max(0, int((act_end - exp_end).total_seconds() // 60))
-                # ✔ tolerancia de 2 minutos
-                if late_raw <= TOLERANCE_MINUTES:
+                exp_start, exp_end, is_night = exp_iv
+                act_iv = actual_interval_for_day(actual_row, day, is_night)
+                if act_iv is None:
+                    original_status = "U"
                     late_minutes = 0
-                    original_status = "A"
+                    overtime_minutes = 0
                 else:
-                    late_minutes = late_raw
-                    original_status = "D"
+                    act_start, act_end = act_iv
+                    atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
+                    salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
+                    late_raw = atraso_entrada + salida_anticipada
+                    overtime_minutes = max(0, int((exp_start - act_start).total_seconds() // 60)) + \
+                                       max(0, int((act_end - exp_end).total_seconds() // 60))
+                    # ✔ tolerancia de 2 minutos
+                    if late_raw <= TOLERANCE_MINUTES:
+                        late_minutes = 0
+                        original_status = "A"
+                    else:
+                        late_minutes = late_raw
+                        original_status = "D"
 
     status = original_status
     is_overridden = False
@@ -298,10 +289,10 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
             arow_actual = actuals_idx.get((aid, cur))
             item = compute_day_status(arow, cur, arow_actual, just_map)
             
-            # Match either the visible `status` or the computed `original_status`.
+            # Match only the current visible status (after overrides)
             match = True
             if allowed_statuses is not None:
-                match = (item["status"].upper() in allowed_statuses) or (item["original_status"].upper() in allowed_statuses)
+                match = item["status"].upper() in allowed_statuses
 
             if match:
                 days.append(item)
