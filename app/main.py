@@ -7,8 +7,7 @@ import json
 from pathlib import Path
 
 from .storage import sync_from_r2
-from .logic import SCHEDULE_DF
-from .database import init_db
+from .database import get_all_agents_and_leads, init_db
 from .routes.attendance import router as attendance_router
 from .routes.admin import router as admin_router
 
@@ -46,9 +45,8 @@ def index(request: Request):
     else:
         end = date(yr, mo + 1, 1) - timedelta(days=1)
 
-    # Opciones dinámicas (leads y agentes) desde schedule.csv
-    leads = sorted(list({str(x) for x in SCHEDULE_DF["lead"].tolist()}))
-    agents = [{"id": str(r["agent_id"]), "name": str(r["name"])} for _, r in SCHEDULE_DF.iterrows()]
+    # Opciones dinámicas (leads y agentes) desde todos los schedules versionados y CSV
+    leads, agents = get_all_agents_and_leads()
     options_json = json.dumps({"leads": leads, "agents": agents})
 
     return templates.TemplateResponse("index.html", {

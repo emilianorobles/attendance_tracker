@@ -33,6 +33,26 @@ def _process_schedule_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _select_agent_row_for_day(agent_rows: pd.DataFrame, day: date) -> Optional[pd.Series]:
+    """Select the correct row for an agent on a specific day, considering multiple schedules."""
+    if agent_rows.empty:
+        return None
+    
+    # If only one row, use it
+    if len(agent_rows) == 1:
+        return agent_rows.iloc[0]
+    
+    # Multiple rows - find the one where the day is in working_days
+    dow = weekday_token(day)
+    for _, row in agent_rows.iterrows():
+        working_days = set(parse_days_list(row["working_days"]))
+        if dow in working_days:
+            return row
+    
+    # If no row matches, the agent doesn't work this day
+    return None
+
+
 def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     """
     Get the schedule that was effective on target_date.
@@ -113,7 +133,7 @@ def compute_day_status(
       - U si no hay registro en día laborable.
       - A si late_minutes == 0; D si > 0.
       - Tolerancia: si late_minutes <= TOLERANCE_MINUTES ⇒ A y late=0.
-      - Override permitido: A/J/V/U/D. Si override 'A' ⇒ late=0 (no suma).
+      - Override permitido: A/J/V/U/D/H/C. Si override 'A' ⇒ late=0 (no suma).
     Devuelve también:
       - original_status (antes del override y tras aplicar tolerancia)
       - is_overridden (True si hubo justificación/override)
@@ -171,7 +191,7 @@ def compute_day_status(
 
     # Override (justificación/ajuste manual)
     override = just_map.get((agent_id, day))
-    if override and override.get("type") in {"A", "J", "V", "U", "D"}:
+    if override and override.get("type") in {"A", "J", "V", "U", "D", "H", "C"}:
         is_overridden = True
         status = override["type"]
         if status == "A":
@@ -248,16 +268,21 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
         sched = get_schedule_cached(cur)
         for _, row in sched.iterrows():
             aid = str(row["agent_id"])
-            if aid not in all_agents:
-                all_agents[aid] = {"name": row["name"], "lead": row["lead"]}
+            # Always update with latest info (from latest schedule)
+            all_agents[aid] = {"name": row["name"], "lead": row["lead"]}
         cur += timedelta(days=1)
 
     # Filter agents by lead/agent_id
     if lead:
         lead_lower = lead.strip().lower()
-        # Get base schedule to check leads
-        base_sched = get_schedule_cached(start)
-        valid_agents = set(base_sched[base_sched["lead"].str.lower() == lead_lower]["agent_id"].tolist())
+        # Check if agent had this lead on ANY day in the date range
+        valid_agents = set()
+        cur = start
+        while cur <= end:
+            sched = get_schedule_cached(cur)
+            day_agents = set(sched[sched["lead"].str.lower() == lead_lower]["agent_id"].tolist())
+            valid_agents.update(day_agents)
+            cur += timedelta(days=1)
         all_agents = {k: v for k, v in all_agents.items() if k in valid_agents}
     
     if agent_id:
@@ -267,7 +292,7 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
     agents_out = []
     for aid, agent_info in all_agents.items():
         days = []
-        late_sum = delays = vacations = justified = unjustified = justified_delays_sum = 0
+        late_sum = delays = vacations = justified = unjustified = justified_delays_sum = holidays = comp_days = 0
         cur = start
         
         # normalize status_filter: accept comma-separated, case-insensitive
@@ -280,12 +305,11 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
             day_sched = get_schedule_cached(cur)
             agent_rows = day_sched[day_sched["agent_id"] == aid]
             
-            if agent_rows.empty:
+            arow = _select_agent_row_for_day(agent_rows, cur)
+            if arow is None:
                 # Agent not in schedule for this day - skip
                 cur += timedelta(days=1)
                 continue
-            
-            arow = agent_rows.iloc[0]
             arow_actual = actuals_idx.get((aid, cur))
             item = compute_day_status(arow, cur, arow_actual, just_map)
             
@@ -309,6 +333,10 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                     justified += 1
                 elif item["status"] == "U":
                     unjustified += 1
+                elif item["status"] == "H":
+                    holidays += 1
+                elif item["status"] == "C":
+                    comp_days += 1
 
                 # Justified delays: originalmente D y ahora A o J
                 if item["original_status"] == "D" and item["status"] in {"A", "J"}:
@@ -328,6 +356,8 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                 "justified_sum": justified,
                 "unjustified_sum": unjustified,
                 "justified_delays_sum": justified_delays_sum,
+                "holidays_sum": holidays,
+                "comp_days_sum": comp_days,
             })
 
     return {"agents": agents_out}

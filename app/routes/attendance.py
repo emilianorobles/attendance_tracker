@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Dict, Tuple, Any, List
 import pandas as pd
 
-from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, compute_day_status
+from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, compute_day_status, get_schedule_for_day
 from ..database import get_justifications_map, upsert_justification, delete_justification
 from ..models.schemas import JustifyBody
 
@@ -119,23 +119,50 @@ def export_excel(
         base["justified_sum"] = agent["justified_sum"]
         base["unjustified_sum"] = agent["unjustified_sum"]
         base["justified_delays_sum"] = agent["justified_delays_sum"]
+        base["holidays_sum"] = agent["holidays_sum"]
+        base["comp_days_sum"] = agent["comp_days_sum"]
         rows_attendance.append(base)
 
     cols_attendance = ["agent_id", "name"] + day_labels + [
-        "late_minutes_sum", "delays_sum", "vacations_sum", "justified_sum", "unjustified_sum", "justified_delays_sum"
+        "late_minutes_sum", "delays_sum", "vacations_sum", "justified_sum", "unjustified_sum", "justified_delays_sum", "holidays_sum", "comp_days_sum"
     ]
     df_attendance = pd.DataFrame(rows_attendance, columns=cols_attendance)
 
     # --- Connections (detalle conexiones por día) ---
     df_act_all = get_actuals_df()
 
-    sched = SCHEDULE_DF.copy()
-    if lead:
-        sched = sched[sched["lead"].str.lower() == lead.strip().lower()]
-    if agent_id:
-        sched = sched[sched["agent_id"] == str(agent_id).strip()]
+    # Cache for schedule by date to avoid repeated lookups
+    schedule_cache: Dict[date, pd.DataFrame] = {}
+    
+    def get_schedule_cached(d: date) -> pd.DataFrame:
+        if d not in schedule_cache:
+            schedule_cache[d] = get_schedule_for_day(d)
+        return schedule_cache[d]
 
-    valid_agents = set(sched["agent_id"].astype(str).tolist())
+    # Collect all unique agents from all schedules in the date range
+    all_agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> latest agent info
+    cur = start_d
+    while cur <= end_d:
+        sched = get_schedule_cached(cur)
+        for _, row in sched.iterrows():
+            aid = str(row["agent_id"])
+            if aid not in all_agents:
+                all_agents[aid] = {"name": row["name"], "lead": row["lead"]}
+        cur += timedelta(days=1)
+
+    # Filter agents by lead/agent_id
+    if lead:
+        lead_lower = lead.strip().lower()
+        # Get base schedule to check leads
+        base_sched = get_schedule_cached(start_d)
+        valid_agents = set(base_sched[base_sched["lead"].str.lower() == lead_lower]["agent_id"].tolist())
+        all_agents = {k: v for k, v in all_agents.items() if k in valid_agents}
+    
+    if agent_id:
+        target_aid = str(agent_id).strip()
+        all_agents = {k: v for k, v in all_agents.items() if k == target_aid}
+
+    valid_agents = set(all_agents.keys())
     df_act_all = df_act_all[df_act_all["agent_id"].isin(valid_agents)].copy()
 
     actuals_by_day: Dict[Tuple[str, date], List[pd.Series]] = {}
@@ -147,13 +174,20 @@ def export_excel(
         return t.strftime("%H:%M") if t else ""
 
     rows_connections: List[Dict[str, Any]] = []
-    for _, arow in sched.iterrows():
-        aid = str(arow["agent_id"])
-        aname = str(arow["name"])
-        ashift = str(arow["Shift"])
-
+    for aid, agent_info in all_agents.items():
         cur_day = start_d
         while cur_day <= end_d:
+            # Get schedule for this specific day
+            day_sched = get_schedule_cached(cur_day)
+            agent_rows = day_sched[day_sched["agent_id"] == aid]
+            
+            if agent_rows.empty:
+                # Agent not in schedule for this day - skip
+                cur_day += timedelta(days=1)
+                continue
+            
+            arow = agent_rows.iloc[0]
+            ashift = str(arow["Shift"])
             exp_iv = expected_interval_for_day(arow, cur_day)
             exp_start_t = exp_iv[0].time() if exp_iv else None
             exp_end_t = exp_iv[1].time() if exp_iv else None
@@ -170,7 +204,7 @@ def export_excel(
                         "expected_disconnect_time": tstr(exp_end_t),
                         "date": cur_day.isoformat(),
                         "agent_id": aid,
-                        "name": aname,
+                        "name": agent_info["name"],
                         "shift": ashift,
                         "actual_connect_time": tstr(r["actual_start_t"]),
                         "actual_disconnect_time": tstr(r["actual_end_t"]),
@@ -183,7 +217,7 @@ def export_excel(
                     "expected_disconnect_time": tstr(exp_end_t),
                     "date": cur_day.isoformat(),
                     "agent_id": aid,
-                    "name": aname,
+                    "name": agent_info["name"],
                     "shift": ashift,
                     "actual_connect_time": "",
                     "actual_disconnect_time": "",
