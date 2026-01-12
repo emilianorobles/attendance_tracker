@@ -37,7 +37,7 @@
       --just:#6f42c1; --vac:#20c997; --off:#6c757d; --border:#dee2e6;
       --glow:#000000; --input-bg:#ffffff; --even-row:#f8f9fa; --header-bg:#f8f9fa;
     }
-    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U, .light-mode .status-J, .light-mode .status-V, .light-mode .status-O { color: #000; }
+    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U, .light-mode .status-J, .light-mode .status-V, .light-mode .status-O, .light-mode .status-H, .light-mode .status-C { color: #000; }
     *{ box-sizing:border-box }
     body { margin:0; background:var(--bg); color:var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
@@ -79,10 +79,12 @@
     .status-J { background: rgba(167,139,250,.3); border-color: rgba(167,139,250,.5); }
     .status-V { background: rgba(56,189,248,.3); border-color: rgba(56,189,248,.5); }
     .status-O { background: rgba(107,114,128,.3); border-color: rgba(107,114,128,.5); }
+    .status-H { background: rgba(236,72,153,.3); border-color: rgba(236,72,153,.5); }
+    .status-C { background: rgba(14,165,233,.3); border-color: rgba(14,165,233,.5); }
     /* Pending/future dates - empty neutral style */
     .status-- { background: transparent; border-color: var(--border); color: var(--muted); }
     /* Text color for status cells - white in dark mode */
-    .status-A, .status-D, .status-U, .status-J, .status-V, .status-O { color: #fff; }
+    .status-A, .status-D, .status-U, .status-J, .status-V, .status-O, .status-H, .status-C { color: #fff; }
     /* ✔ Celda con override/justificación: brillo y borde más claro */
     .ovr { box-shadow: 0 0 0 2px rgba(255,255,255,.25) inset, 0 0 6px rgba(255,255,255,.15); filter: brightness(1.15); }
     td { cursor:pointer; }
@@ -137,6 +139,8 @@
         <option value="O">O (Day Off)</option>
         <option value="U">U (Unjustified)</option>
         <option value="J">J (Justified)</option>
+        <option value="H">H (Holiday)</option>
+        <option value="C">C (Comp Off)</option>
       </select>
     </div>
     <div class="actions">
@@ -173,6 +177,8 @@
         <option value="V">V (Vacation)</option>
         <option value="U">U (Unjustified)</option>
         <option value="D">D (Delay)</option>
+        <option value="H">H (Holiday)</option>
+        <option value="C">C (Comp Off)</option>
       </select>
     </div>
     <div class="row">

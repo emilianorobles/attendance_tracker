@@ -392,16 +392,16 @@ def get_justifications_map(start: date, end: date) -> Dict[Tuple[str, date], Dic
 
 def get_all_agents_and_leads() -> Tuple[List[str], List[Dict[str, str]]]:
     """Get all unique leads and agents from all schedule versions and the base CSV."""
-    # from .logic import load_schedule  # Import here to avoid circular import
+    from .logic import load_schedule  # Import here to avoid circular import
     
     leads = set()
     agents = {}  # agent_id -> {"id": agent_id, "name": name}
     
     # Add from base CSV schedule
-    # base_sched = load_schedule()
-    # for _, row in base_sched.iterrows():
-    #     leads.add(str(row["lead"]))
-    #     agents[str(row["agent_id"])] = {"id": str(row["agent_id"]), "name": str(row["name"])}
+    base_sched = load_schedule()
+    for _, row in base_sched.iterrows():
+        leads.add(str(row["lead"]))
+        agents[str(row["agent_id"])] = {"id": str(row["agent_id"]), "name": str(row["name"])}
     
     # Add from all schedule versions
     versions = get_all_schedule_versions()
