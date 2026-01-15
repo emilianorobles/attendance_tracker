@@ -30,14 +30,16 @@
       --accent:#3b82f6; --ok:#22c55e; --delay:#f59e0b; --unjust:#ef4444;
       --just:#a78bfa; --vac:#38bdf8; --off:#6b7280; --border:#1f2937;
       --glow:#ffffff; --input-bg:#0b1220; --even-row:#0d1424; --header-bg:#0b1220;
+      --med:#f97316;
     }
     .light-mode {
       --bg:#ffffff; --card:#f8f9fa; --text:#212529; --muted:#495057;
       --accent:#007bff; --ok:#28a745; --delay:#fd7e14; --unjust:#dc3545;
       --just:#6f42c1; --vac:#20c997; --off:#6c757d; --border:#dee2e6;
       --glow:#000000; --input-bg:#ffffff; --even-row:#f8f9fa; --header-bg:#f8f9fa;
+      --med:#fd7e14;
     }
-    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U, .light-mode .status-J, .light-mode .status-V, .light-mode .status-O, .light-mode .status-H, .light-mode .status-C { color: #000; }
+    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U, .light-mode .status-J, .light-mode .status-V, .light-mode .status-O, .light-mode .status-H, .light-mode .status-C, .light-mode .status-M { color: #000; }
     *{ box-sizing:border-box }
     body { margin:0; background:var(--bg); color:var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
@@ -81,10 +83,11 @@
     .status-O { background: rgba(107,114,128,.3); border-color: rgba(107,114,128,.5); }
     .status-H { background: rgba(236,72,153,.3); border-color: rgba(236,72,153,.5); }
     .status-C { background: rgba(14,165,233,.3); border-color: rgba(14,165,233,.5); }
+    .status-M { background: rgba(249,115,22,.3); border-color: rgba(249,115,22,.5); }
     /* Pending/future dates - empty neutral style */
     .status-- { background: transparent; border-color: var(--border); color: var(--muted); }
     /* Text color for status cells - white in dark mode */
-    .status-A, .status-D, .status-U, .status-J, .status-V, .status-O, .status-H, .status-C { color: #fff; }
+    .status-A, .status-D, .status-U, .status-J, .status-V, .status-O, .status-H, .status-C, .status-M { color: #fff; }
     /* ✔ Celda con override/justificación: brillo y borde más claro */
     .ovr { box-shadow: 0 0 0 2px rgba(255,255,255,.25) inset, 0 0 6px rgba(255,255,255,.15); filter: brightness(1.15); }
     td { cursor:pointer; }
@@ -141,6 +144,7 @@
         <option value="J">J (Justified)</option>
         <option value="H">H (Holiday)</option>
         <option value="C">C (Comp Off)</option>
+        <option value="ML">ML (Medical Leave)</option>
       </select>
     </div>
     <div class="actions">
@@ -179,6 +183,7 @@
         <option value="D">D (Delay)</option>
         <option value="H">H (Holiday)</option>
         <option value="C">C (Comp Off)</option>
+        <option value="ML">ML (Medical Leave)</option>
       </select>
     </div>
     <div class="row">
@@ -559,7 +564,7 @@
         if (item && item.is_overridden) td.classList.add("ovr"); // ✔ resalta justificados/overrides
         if (item && item.tooltip && st === "D") { td.title = item.tooltip; }
         // Allow clicking on all dates including future ones
-        td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d));
+        td.addEventListener("click", ()=> openModal(agent.agent_id, agent.name, d, item));
         tr.appendChild(td);
       });
 
