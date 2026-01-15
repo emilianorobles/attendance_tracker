@@ -141,35 +141,38 @@ def compute_day_status(
     agent_id = agent_row["agent_id"]
     name = agent_row["name"]
     lead = agent_row["lead"]
+    shift = agent_row["Shift"]
     days_off = set(parse_days_list(agent_row["days_off"]))
     dow = weekday_token(day)
     
     today = date.today()
+    
+    # Initialize variables
+    actual_start = ""
+    actual_end = ""
+    late_minutes = 0
+    overtime_minutes = 0
 
     # Future dates: default to pending status, but check for overrides below
     if day > today:
         original_status = "-"
-        late_minutes = 0
-        overtime_minutes = 0
     # Base (estado original)
     elif day <= today:
         if dow in days_off:
             original_status = "O"
-            late_minutes = 0
-            overtime_minutes = 0
         else:
             exp_iv = expected_interval_for_day(agent_row, day)
             if exp_iv is None:
                 original_status = "O"
-                late_minutes = 0
-                overtime_minutes = 0
             else:
                 exp_start, exp_end, is_night = exp_iv
                 act_iv = actual_interval_for_day(actual_row, day, is_night)
+                if act_iv is not None:
+                    act_start, act_end = act_iv
+                    actual_start = act_start.strftime("%H:%M")
+                    actual_end = act_end.strftime("%H:%M")
                 if act_iv is None:
                     original_status = "U"
-                    late_minutes = 0
-                    overtime_minutes = 0
                 else:
                     act_start, act_end = act_iv
                     atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
@@ -191,7 +194,7 @@ def compute_day_status(
 
     # Override (justificación/ajuste manual)
     override = just_map.get((agent_id, day))
-    if override and override.get("type") in {"A", "J", "V", "U", "D", "H", "C"}:
+    if override and override.get("type") in {"A", "J", "V", "U", "D", "H", "C", "ML"}:
         is_overridden = True
         status = override["type"]
         if status == "A":
@@ -211,8 +214,11 @@ def compute_day_status(
         "agent_id": agent_id,
         "name": name,
         "lead": lead,
+        "shift": shift,
         "date": day.isoformat(),
         "status": status,
+        "actual_start": actual_start,
+        "actual_end": actual_end,
         "late_minutes": int(late_minutes),
         "overtime_minutes": int(overtime_minutes),
         "tooltip": tooltip,
@@ -292,7 +298,7 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
     agents_out = []
     for aid, agent_info in all_agents.items():
         days = []
-        late_sum = delays = vacations = justified = unjustified = justified_delays_sum = holidays = comp_days = 0
+        late_sum = delays = vacations = justified = unjustified = justified_delays_sum = holidays = comp_days = medical_leaves = 0
         cur = start
         
         # normalize status_filter: accept comma-separated, case-insensitive
@@ -337,6 +343,8 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                     holidays += 1
                 elif item["status"] == "C":
                     comp_days += 1
+                elif item["status"] == "ML":
+                    medical_leaves += 1
 
                 # Justified delays: originalmente D y ahora A o J
                 if item["original_status"] == "D" and item["status"] in {"A", "J"}:
@@ -358,6 +366,7 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                 "justified_delays_sum": justified_delays_sum,
                 "holidays_sum": holidays,
                 "comp_days_sum": comp_days,
+                "medical_leaves_sum": medical_leaves,
             })
 
     return {"agents": agents_out}

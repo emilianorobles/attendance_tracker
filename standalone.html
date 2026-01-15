@@ -301,15 +301,15 @@
 <!-- Tom Select JS -->
 <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
 
-<div id="app-options" style="display:none;">{{options_json|safe}}</div>
+<div id="app-options" style="display:none;">{"leads": ["Citlalli", "Emiliano", "Jesus", "Martin", "Wendy"], "agents": [{"id": "10003", "name": "Aaron Gonzalez Gomez"}, {"id": "10036", "name": "Adrian Perez Hernandez"}, {"id": "10024", "name": "Alejandro Mendoza Martinez"}, {"id": "10019", "name": "Alvaro Ramos Preciado"}, {"id": "12028", "name": "Amanda Estefania Cordero Paniagua"}, {"id": "12003", "name": "Aurora Cuahutle Cuamatzi"}, {"id": "12039", "name": "Beatriz Eugenia Vivanco Perez"}, {"id": "12018", "name": "Carlos Adrian Koloffon Lopez"}, {"id": "10020", "name": "Cassandra Olvera Solorio"}, {"id": "10046", "name": "Citlalli Rodriguez Gomez"}, {"id": "10026", "name": "Eduardo Flores Arciniega"}, {"id": "10017", "name": "Elias Cervantes"}, {"id": "12007", "name": "Elizabeth Mariana Salinas Zavala"}, {"id": "10004", "name": "Guadalupe Paola Mendoza Ortiz"}, {"id": "10038", "name": "Jesus Emanuel Rojas Delgado"}, {"id": "10006", "name": "Jose Antonio Flores Gonzalez"}, {"id": "12005", "name": "Jos\u00e9 Martin Nepomuceno Trujillo"}, {"id": "12024", "name": "Luis Rodrigo Del Pino Velarde"}, {"id": "10042", "name": "Manuel Alexander Ramirez Serrano"}, {"id": "10012", "name": "Marianna Wingfield Macias"}, {"id": "10011", "name": "Martha Guadalupe Ramirez Escamilla"}, {"id": "10022", "name": "Melisa Arisbeth Alanis Uribe"}, {"id": "10043", "name": "Michelle Martinez Ruiz"}, {"id": "10021", "name": "Miguel Alvarez de la Vega Mill\u00e1n"}, {"id": "10037", "name": "Miguel Angel Anaya Lopez"}, {"id": "12001", "name": "Oscar Saul Zainos Almaraz"}, {"id": "10000", "name": "Patricia Taboada Prieto"}, {"id": "12027", "name": "Rachel Baez Chavez"}, {"id": "10035", "name": "Rocio Salazar Ramirez"}, {"id": "10048", "name": "Sergio Arturo Gonzalez Zavala"}, {"id": "10001", "name": "Thalia Eduardo Ugarte"}, {"id": "12040", "name": "Valeria Espinoza"}, {"id": "10002", "name": "Wendy Ramirez Martinez"}]}</div>
 
 <script>
   // Datos dinámicos desde schedule.csv inyectados por el servidor:
   const APP_OPTIONS = JSON.parse(document.getElementById('app-options').textContent);
 
   // Rango por defecto (Diciembre del año actual)
-  const DEFAULT_START = "{{default_start}}";
-  const DEFAULT_END = "{{default_end}}";
+  const DEFAULT_START = "2026-01-01";
+  const DEFAULT_END = "2026-01-31";
 
   let fp = null;
   let leadSelect = null, agentSelect = null;
@@ -602,7 +602,7 @@
       cur.setDate(cur.getDate()+1);
     }
     buildHeaderTwoRows(curDates);
-    const data = await fetchJSON(`/attendance?${qs}`);
+    const data = await fetchJSON(`http://localhost:8080/attendance?${qs}`);
     buildBody(data, startISO, endISO);
   }
 
@@ -626,7 +626,7 @@
         note: document.getElementById("mNote").value,
         lead: document.getElementById("mLead").value,
       };
-      const res = await fetch("/attendance/justify", {
+      const res = await fetch("http://localhost:8080http://localhost:8080/attendance/justify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -638,7 +638,7 @@
     // Revert (elimina justificación)
     document.getElementById("mRevert").onclick = async ()=>{
       const qs = new URLSearchParams({ agent_id: String(agent_id), date: dateISO }).toString();
-      const res = await fetch(`/attendance/justify?${qs}`, { method: "DELETE" });
+      const res = await fetch(`http://localhost:8080http://localhost:8080/attendance/justify?${qs}`, { method: "DELETE" });
       if (!res.ok) { alert(await res.text()); }
       else { dlg.close(); await loadAttendance(); }
     };
