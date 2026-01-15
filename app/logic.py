@@ -150,6 +150,8 @@ def compute_day_status(
     # Initialize variables
     actual_start = ""
     actual_end = ""
+    planned_start = ""
+    planned_end = ""
     late_minutes = 0
     overtime_minutes = 0
 
@@ -166,6 +168,8 @@ def compute_day_status(
                 original_status = "O"
             else:
                 exp_start, exp_end, is_night = exp_iv
+                planned_start = exp_start.strftime("%H:%M")
+                planned_end = exp_end.strftime("%H:%M")
                 act_iv = actual_interval_for_day(actual_row, day, is_night)
                 if act_iv is not None:
                     act_start, act_end = act_iv
@@ -219,6 +223,8 @@ def compute_day_status(
         "status": status,
         "actual_start": actual_start,
         "actual_end": actual_end,
+        "planned_start": planned_start,
+        "planned_end": planned_end,
         "late_minutes": int(late_minutes),
         "overtime_minutes": int(overtime_minutes),
         "tooltip": tooltip,

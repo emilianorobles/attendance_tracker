@@ -230,12 +230,31 @@
       <label>Lead</label>
       <input id="mLead" placeholder="Lead name (optional)"/>
     </div>
+    <!-- Attendance Details block (read-only, from actuals.csv and schedules.csv in memory) -->
+    <div id="attendanceDetailsBlock" style="margin-top:16px; margin-bottom:8px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg);">
+      <div style="font-weight:600; margin-bottom:8px; color:var(--muted); font-size:12px;">Attendance Details</div>
+      <div class="row">
+        <label>Shift</label>
+        <input id="mShift" readonly/>
+      </div>
+      <div class="row">
+        <label>Planned shift</label>
+        <input id="mPlannedShift" readonly/>
+      </div>
+      <div class="row">
+        <label>Actual shift</label>
+        <input id="mActualShift" readonly/>
+      </div>
+      <div class="row">
+        <label>Delay (min)</label>
+        <input id="mDelay" readonly/>
+      </div>
+    </div>
     <footer>
       <button class="btn" id="mRevert">Revert</button>
       <button class="btn" id="mCancel">Cancel</button>
       <button class="btn accent" id="mSave">Save</button>
     </footer>
-    <div class="footer-note">Changes are stored locally in SQLite.</div>
   </div>
 </dialog>
 
@@ -642,16 +661,72 @@
     buildBody(data, startISO, endISO);
   }
 
-  function openModal(agent_id, agent_name, dateISO) {
+  // Helper to format time as HH:mm or —
+  function fmtTime(val) {
+    if (!val || typeof val !== "string" || val.length < 4) return "—";
+    // Accepts 'HH:mm', 'HHmm', 'H:mm', 'Hmm', 'HH:MM:SS', etc.
+    let m = val.match(/^(\d{1,2}):(\d{2})/);
+    if (m) return m[1].padStart(2, "0") + ":" + m[2];
+    m = val.match(/^(\d{1,2})(\d{2})$/);
+    if (m) return m[1].padStart(2, "0") + ":" + m[2];
+    return "—";
+  }
+
+  function openModal(agent_id, agent_name, dateISO, item) {
+    console.log("Opening modal with:", { agent_id, agent_name, dateISO, item });
     document.getElementById("mAgent").value = `${agent_id} — ${agent_name}`;
     document.getElementById("mDate").value = dateISO;
     document.getElementById("mType").value = "A"; // default: Attendance
     document.getElementById("mNote").value = "";
     document.getElementById("mLead").value = "";
-    const dlg = document.getElementById("modal");
-    dlg.showModal();
 
-    document.getElementById("mCancel").onclick = ()=> dlg.close();
+    // Attendance Details block (read-only, from actuals.csv and schedules.csv loaded in memory)
+    // Shift
+    document.getElementById("mShift").value = (item && item.shift) ? item.shift : "—";
+
+    // Planned shift (from schedules.csv, planned_start/planned_end)
+    let plannedStart = null, plannedEnd = null;
+    if (item && item.planned_start && item.planned_end) {
+      plannedStart = item.planned_start;
+      plannedEnd = item.planned_end;
+    }
+    let plannedStr = (plannedStart && plannedEnd) ? `${fmtTime(plannedStart)} - ${fmtTime(plannedEnd)}` : "—";
+    document.getElementById("mPlannedShift").value = plannedStr;
+
+    // Actual shift (from actuals.csv, actual_start/actual_end)
+    let actualStart = (item && item.actual_start) ? fmtTime(item.actual_start) : null;
+    let actualEnd = (item && item.actual_end) ? fmtTime(item.actual_end) : null;
+    let actualStr = (actualStart && actualEnd) ? `${actualStart} - ${actualEnd}` : "—";
+    document.getElementById("mActualShift").value = actualStr;
+
+    // Delay (min): max(0, actual_start - planned_start) en minutos
+    let delayVal = "—";
+    if (plannedStart && actualStart && plannedStart !== "—" && actualStart !== "—") {
+      // Convert HH:mm to minutes
+      function toMinutes(hhmm) {
+        let [h, m] = hhmm.split(":").map(Number);
+        return h * 60 + m;
+      }
+      let delay = toMinutes(actualStart) - toMinutes(fmtTime(plannedStart));
+      delayVal = delay > 0 ? delay : 0;
+    } else if (item && (item.late_minutes !== undefined && item.late_minutes !== null)) {
+      delayVal = item.late_minutes;
+    }
+    document.getElementById("mDelay").value = delayVal;
+
+    const dlg = document.getElementById("modal");
+    console.log("Modal element:", dlg);
+
+    try {
+        dlg.showModal();
+    } catch (e) {
+        console.error("showModal() failed. Falling back to display:block.", e);
+        dlg.style.display = "block";
+    }
+
+    document.getElementById("mCancel").onclick = ()=> {
+        dlg.close ? dlg.close() : dlg.style.display = "none";
+    };
 
     // Guardar / override
     document.getElementById("mSave").onclick = async ()=>{
@@ -662,13 +737,14 @@
         note: document.getElementById("mNote").value,
         lead: document.getElementById("mLead").value,
       };
+      console.log("Saving data:", body);
       const res = await fetch("/attendance/justify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) { alert(await res.text()); }
-      else { dlg.close(); await loadAttendance(); }
+      else { dlg.close ? dlg.close() : dlg.style.display = "none"; await loadAttendance(); }
     };
 
     // Revert (elimina justificación)
@@ -676,7 +752,7 @@
       const qs = new URLSearchParams({ agent_id: String(agent_id), date: dateISO }).toString();
       const res = await fetch(`/attendance/justify?${qs}`, { method: "DELETE" });
       if (!res.ok) { alert(await res.text()); }
-      else { dlg.close(); await loadAttendance(); }
+      else { dlg.close ? dlg.close() : dlg.style.display = "none"; await loadAttendance(); }
     };
   }
 
