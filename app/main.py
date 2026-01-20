@@ -22,6 +22,20 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 # Templates
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+import pandas as pd
+
+def eliminar_delay_min_generalizado(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Si para un mismo (fecha, empleado_id) hay al menos un status == 'D' y al menos un status != 'D',
+    entonces delay_min se pone a 0 para todas las filas de ese grupo.
+    """
+    def regla_delay(grupo):
+        tiene_d = (grupo['status'] == 'D').any()
+        tiene_no_d = (grupo['status'] != 'D').any()
+        if tiene_d and tiene_no_d:
+            grupo['delay_min'] = 0
+        return grupo
+    return df.groupby(['fecha', 'empleado_id'], group_keys=False).apply(regla_delay)
 
 # Cache for actuals data
 actuals_cache = []
@@ -38,15 +52,19 @@ def load_actuals():
     except Exception as e:
         print(f"Error loading actuals.csv: {e}")
 
-# Sync files from R2 on startup (before init_db)
-sync_from_r2()
+    # Sync files from R2 on startup (before init_db)
+    sync_from_r2()
 
-# Init DB
-init_db()
+    # Init DB
+    init_db()
 
 # Include routes
 app.include_router(attendance_router)
 app.include_router(admin_router)
+
+@app.get("/test")
+def test_endpoint():
+    return {"message": "Server is working"}
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
@@ -71,6 +89,35 @@ def index(request: Request):
         "default_start": start.isoformat(),
         "default_end": end.isoformat()
     })
+
+# @app.get("/", response_class=HTMLResponse)
+# def index(request: Request):
+#     return templates.TemplateResponse("test.html", {"request": request})
+#     # Rango por defecto: mes actual del año actual
+#     today = date.today()
+#     yr = today.year
+#     mo = today.month
+#     start = date(yr, mo, 1)
+#     # Last day of the month
+#     if mo == 12:
+#         end = date(yr, 12, 31)
+#     else:
+#         end = date(yr, mo + 1, 1) - timedelta(days=1)
+
+#     # Opciones dinámicas (leads y agentes) desde todos los schedules versionados y CSV
+#     leads, agents = get_all_agents_and_leads()
+#     options_json = json.dumps({"leads": leads, "agents": agents})
+
+#     return templates.TemplateResponse("index.html", {
+#         "request": request,
+#         "options_json": options_json,
+#         "default_start": start.isoformat(),
+#         "default_end": end.isoformat()
+#     })
+
+# @app.get("/", response_class=HTMLResponse)
+# def index(request: Request):
+#     return "<html><body><h1>Attendance Tracker</h1><p>Server is working!</p></body></html>"
 
 # Helper to find attendance details by agent_id and date
 def get_attendance_details(agent_id, date):

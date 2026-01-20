@@ -3,7 +3,7 @@ from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, Any, Tuple, List
 
 from .utils import parse_hhmm_or_hhmmss, weekday_token, parse_days_list
-from .database import get_justifications_map, get_schedule_for_date
+from .database import get_justifications_map, get_schedule_for_date, get_single_day_override_db, get_new_schedule_override
 
 CSV_SCHEDULE = "schedule.csv"
 CSV_ACTUALS = "actuals.csv"
@@ -38,19 +38,15 @@ def _select_agent_row_for_day(agent_rows: pd.DataFrame, day: date) -> Optional[p
     if agent_rows.empty:
         return None
     
-    # If only one row, use it
+    # If only one row, return it regardless of working days/days off
+    # The status will be determined later in compute_day_status
     if len(agent_rows) == 1:
         return agent_rows.iloc[0]
     
-    # Multiple rows - find the one where the day is in working_days
-    dow = weekday_token(day)
-    for _, row in agent_rows.iterrows():
-        working_days = set(parse_days_list(row["working_days"]))
-        if dow in working_days:
-            return row
-    
-    # If no row matches, the agent doesn't work this day
-    return None
+    # Multiple rows - find the most appropriate one
+    # For now, just return the first one that exists for this agent
+    # The schedule versioning logic should handle which one is active
+    return agent_rows.iloc[0]
 
 
 def get_schedule_for_day(target_date: date) -> pd.DataFrame:
@@ -65,6 +61,55 @@ def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     
     # Fall back to CSV file (for dates before any versioned schedule)
     return SCHEDULE_DF
+
+
+def get_effective_schedule_for_agent(agent_id: str, target_date: date, base_row: pd.Series) -> pd.Series:
+    """
+    Get the effective schedule for an agent on a specific day, applying any overrides.
+    Returns a modified copy of the base row with override values applied.
+    
+    Priority (highest to lowest):
+    1. Single-day override for this exact date
+    2. New schedule override effective on or before this date
+    3. Base schedule (from versioned DB or CSV)
+    """
+    # Start with a copy of the base row
+    effective = base_row.copy()
+    
+    # Check for single-day override first (highest priority)
+    single_day = get_single_day_override_db(agent_id, target_date)
+    if single_day:
+        # Apply single-day override
+        if single_day.get("expected_start"):
+            effective["expected_start"] = single_day["expected_start"]
+            effective["expected_start_t"] = parse_hhmm_or_hhmmss(single_day["expected_start"])
+        if single_day.get("expected_end"):
+            effective["expected_end"] = single_day["expected_end"]
+            effective["expected_end_t"] = parse_hhmm_or_hhmmss(single_day["expected_end"])
+        if single_day.get("shift"):
+            effective["Shift"] = single_day["shift"]
+            effective["is_night"] = str(single_day["shift"]).lower() == "night"
+        return effective
+    
+    # Check for new schedule override (applies from effective_date onwards)
+    new_sched = get_new_schedule_override(agent_id, target_date)
+    if new_sched:
+        # Apply new schedule override
+        if new_sched.get("working_days"):
+            effective["working_days"] = new_sched["working_days"]
+        if new_sched.get("days_off"):
+            effective["days_off"] = new_sched["days_off"]
+        if new_sched.get("expected_start"):
+            effective["expected_start"] = new_sched["expected_start"]
+            effective["expected_start_t"] = parse_hhmm_or_hhmmss(new_sched["expected_start"])
+        if new_sched.get("expected_end"):
+            effective["expected_end"] = new_sched["expected_end"]
+            effective["expected_end_t"] = parse_hhmm_or_hhmmss(new_sched["expected_end"])
+        if new_sched.get("shift"):
+            effective["Shift"] = new_sched["shift"]
+            effective["is_night"] = str(new_sched["shift"]).lower() == "night"
+    
+    return effective
 
 def load_actuals() -> pd.DataFrame:
     """
@@ -137,12 +182,19 @@ def compute_day_status(
     Devuelve también:
       - original_status (antes del override y tras aplicar tolerancia)
       - is_overridden (True si hubo justificación/override)
+    
+    Note: This function now applies schedule overrides (from Edit Schedules feature)
+    before computing the status.
     """
     agent_id = agent_row["agent_id"]
-    name = agent_row["name"]
-    lead = agent_row["lead"]
-    shift = agent_row["Shift"]
-    days_off = set(parse_days_list(agent_row["days_off"]))
+    
+    # Apply schedule overrides to get effective schedule for this day
+    effective_row = get_effective_schedule_for_agent(agent_id, day, agent_row)
+    
+    name = effective_row["name"]
+    lead = effective_row["lead"]
+    shift = effective_row["Shift"]
+    days_off = set(parse_days_list(effective_row["days_off"]))
     dow = weekday_token(day)
     
     today = date.today()
@@ -163,7 +215,7 @@ def compute_day_status(
         if dow in days_off:
             original_status = "O"
         else:
-            exp_iv = expected_interval_for_day(agent_row, day)
+            exp_iv = expected_interval_for_day(effective_row, day)
             if exp_iv is None:
                 original_status = "O"
             else:
@@ -199,17 +251,32 @@ def compute_day_status(
     # Override (justificación/ajuste manual)
     override = just_map.get((agent_id, day))
     if override and override.get("type") in {"A", "J", "V", "U", "D", "H", "C", "ML"}:
-        is_overridden = True
-        status = override["type"]
-        if status == "A":
-            # Fuerza día sin penalización
-            late_minutes = 0
-            overtime_minutes = 0
-            tooltip = None
-        elif status == "D":
-            tooltip = f"Delay: {late_minutes} minutes"
+        # No aplicar override si el día original es día de descanso (O)
+        if original_status == "O":
+            status = original_status
+            is_overridden = False
         else:
-            tooltip = None
+            is_overridden = True
+            status = override["type"]
+            # Si el status original era 'D' y el override es distinto de 'D', se restan los minutos de atraso
+            if original_status == "D" and status != "D":
+                late_minutes = 0
+                overtime_minutes = 0
+                tooltip = None
+            elif status == "A":
+                # Fuerza día sin penalización
+                late_minutes = 0
+                overtime_minutes = 0
+                tooltip = None
+            elif status == "J":
+                # Día justificado: no penalización
+                late_minutes = 0
+                overtime_minutes = 0
+                tooltip = None
+            elif status == "D":
+                tooltip = f"Delay: {late_minutes} minutes"
+            else:
+                tooltip = None
     else:
         if status == "D":
             tooltip = f"Delay: {late_minutes} minutes"

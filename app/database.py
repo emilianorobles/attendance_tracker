@@ -412,3 +412,48 @@ def get_all_agents_and_leads() -> Tuple[List[str], List[Dict[str, str]]]:
             agents[entry["agent_id"]] = {"id": entry["agent_id"], "name": entry["name"]}
     
     return sorted(list(leads)), list(agents.values())
+
+
+# ============ Schedule Override Functions ============
+
+def get_single_day_override_db(agent_id: str, target_date: date) -> Optional[Dict[str, Any]]:
+    """
+    Get single-day schedule override for an agent on a specific date.
+    Returns None if no override exists.
+    """
+    # TODO: Implement single-day overrides table
+    return None
+
+
+def get_new_schedule_override(agent_id: str, target_date: date) -> Optional[Dict[str, Any]]:
+    """
+    Get new schedule override for an agent effective on or before target_date.
+    Returns None if no override exists.
+    """
+    # TODO: Implement schedule overrides table
+    return None
+
+
+def save_schedule_override(overrides: List[Dict[str, Any]]) -> List[int]:
+    """
+    Save schedule overrides to database.
+    Returns list of created IDs.
+    """
+    # TODO: Implement schedule overrides saving
+    return []
+
+
+def get_all_schedule_overrides() -> List[Dict[str, Any]]:
+    """
+    Get all schedule overrides.
+    """
+    # TODO: Implement schedule overrides retrieval
+    return []
+
+
+def get_unique_shifts() -> List[str]:
+    """
+    Get all unique shift types from schedules.
+    """
+    # TODO: Implement unique shifts retrieval
+    return ["Morning", "Afternoon", "Night"]
