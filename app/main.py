@@ -11,6 +11,10 @@ from .storage import sync_from_r2
 from .database import get_all_agents_and_leads, init_db
 from .routes.attendance import router as attendance_router
 from .routes.admin import router as admin_router
+from .routes.roster import router as roster_router
+from .schedules.api import router as schedules_router
+from .agents.api import router as agents_router
+from .shift_db import init_shift_tables, seed_shift_templates, sync_agents_from_csv
 
 APP_TITLE = "Attendance"
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -57,10 +61,22 @@ def load_actuals():
 
     # Init DB
     init_db()
+    
+    # Init Roster/Shift tables
+    try:
+        init_shift_tables()
+        seed_shift_templates()
+        sync_agents_from_csv()
+        print("Initialized shift roster tables and synced agents.")
+    except Exception as e:
+        print(f"Error initializing shift tables: {e}")
 
 # Include routes
 app.include_router(attendance_router)
 app.include_router(admin_router)
+app.include_router(roster_router)
+app.include_router(schedules_router)
+app.include_router(agents_router)
 
 @app.get("/test")
 def test_endpoint():

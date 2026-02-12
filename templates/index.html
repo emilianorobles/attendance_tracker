@@ -68,6 +68,62 @@
     .btn { padding:10px 12px; border-radius:8px; border:1px solid var(--border);
       background:var(--card); color:var(--text); cursor:pointer; transition:.2s; }
     .btn:hover { background:var(--even-row); }
+    
+    /* Roster Matrix Styles */
+    .roster-cell {
+      cursor: pointer;
+      transition: all 0.1s ease;
+      text-align: center;
+    }
+    .roster-cell:hover {
+      transform: scale(1.08);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      z-index: 5;
+      position: relative;
+    }
+    
+    .roster-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+    .roster-legend-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    
+    #rosterMatrix {
+      border-collapse: collapse;
+    }
+    #rosterMatrix th, #rosterMatrix td {
+      border: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    #rosterMatrix tbody tr:hover {
+      background: rgba(59, 130, 246, 0.1) !important;
+    }
+    
+    .day-checkbox {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+    .day-checkbox:hover { border-color: var(--accent); }
+    .day-checkbox.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .day-checkbox input { display: none; }
     .btn.accent { background: var(--accent); border-color: var(--accent); color:#fff; }
     /* Variable para altura de la primera fila del header */
     :root {
@@ -318,35 +374,283 @@
   </div>
 </dialog>
 
-<!-- View Schedules Modal -->
+<!-- View Schedules Modal - Roster Matrix -->
 <dialog id="schedulesViewModal">
-  <div class="modal" style="min-width: 700px; max-width: 90vw;">
-    <h3>📋 Service Desk Technician Schedules</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0 4px 0;">
-      Current schedules for all agents
-    </p>
-    <div id="scheduleEffectiveDateLegend" style="font-size: 12px; color: var(--muted); margin: 0 0 12px 0;">
-      Last uploaded: <span id="scheduleEffectiveDate">Loading...</span>
+  <div class="modal" style="min-width: 95vw; max-width: 98vw; max-height: 95vh;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h3 style="margin: 0;">📋 Service Desk Technician Schedules</h3>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn" id="btnManageShifts" title="Manage shift templates">⚙️ Manage Shifts</button>
+        <button class="btn" id="btnAddAgent" title="Add new agent to roster">➕ Add Agent</button>
+        <button class="btn accent" id="schedulesViewClose">Close</button>
+      </div>
     </div>
-    <div style="max-height: 60vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
-      <table id="schedulesTable" style="margin: 0; min-width: 100%;">
-        <thead>
-          <tr>
-            <th class="sortable" data-column="agent_id" data-label="Agent ID">Agent ID ↕</th>
-            <th class="sortable" data-column="name" data-label="Name">Name ↕</th>
-            <th class="sortable" data-column="lead" data-label="Lead">Lead ↕</th>
-            <th class="sortable" data-column="shift" data-label="Shift">Shift ↕</th>
-            <th class="sortable" data-column="expected_start" data-label="Expected Start">Expected Start ↕</th>
-            <th class="sortable" data-column="expected_end" data-label="Expected End">Expected End ↕</th>
-            <th class="sortable" data-column="working_days" data-label="Working Days">Working Days ↕</th>
-            <th class="sortable" data-column="days_off" data-label="Days Off">Days Off ↕</th>
+    
+    <!-- Shift Legend -->
+    <div id="shiftLegend" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
+      <span style="font-size: 11px; color: var(--muted); margin-right: 8px; align-self: center;">Shift Codes:</span>
+      <!-- Legend items will be populated by JS -->
+    </div>
+    
+    <!-- Filters -->
+    <div style="display: flex; gap: 12px; margin-bottom: 12px; align-items: end; flex-wrap: wrap;">
+      <!-- Hidden effective date for compatibility -->
+      <input id="rosterWeekStart" type="hidden" />
+      <div class="field" style="min-width: 120px;">
+        <label>Lead</label>
+        <select id="rosterLeadFilter">
+          <option value="">All Leads</option>
+        </select>
+      </div>
+      <div class="field" style="min-width: 120px;">
+        <label>Agent</label>
+        <select id="rosterAgentFilter">
+          <option value="">All Agents</option>
+        </select>
+      </div>
+      <button class="btn accent" id="btnSaveChanges" style="display: none;" title="Save pending changes">💾 Save Changes</button>
+      <span id="pendingChangesCount" style="font-size: 12px; color: var(--delay); align-self: center;"></span>
+    </div>
+    <!-- Hidden elements for compatibility -->
+    <select id="rosterStatusFilter" style="display: none;"><option value="all">All</option></select>
+    
+    <!-- Roster Matrix Table -->
+    <div style="max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px;">
+      <table id="rosterMatrix" style="margin: 0; min-width: 100%; border-collapse: collapse; font-size: 12px;">
+        <thead id="rosterMatrixHead" style="position: sticky; top: 0; z-index: 10;">
+          <tr style="background: #1a365d;">
+            <th style="position: sticky; left: 0; z-index: 12; background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600;">Employee ID</th>
+            <th style="position: sticky; left: 90px; z-index: 12; background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600;">User ID</th>
+            <th style="position: sticky; left: 170px; z-index: 12; background: #1a365d; min-width: 200px; padding: 8px 6px; color: #fff; font-weight: 600; text-align: left;">Full Name</th>
+            <th style="background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600;">Schedule</th>
+            <th class="roster-day" data-day="Mon" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Mon</th>
+            <th class="roster-day" data-day="Tue" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Tue</th>
+            <th class="roster-day" data-day="Wed" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Wed</th>
+            <th class="roster-day" data-day="Thu" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Thu</th>
+            <th class="roster-day" data-day="Fri" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Fri</th>
+            <th class="roster-day" data-day="Sat" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Sat</th>
+            <th class="roster-day" data-day="Sun" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Sun</th>
+            <th style="background: #1a365d; min-width: 70px; padding: 8px 6px; color: #fff; font-weight: 600;">Lead</th>
+            <th style="background: #1a365d; min-width: 60px; padding: 8px 6px; color: #fff; font-weight: 600;">Actions</th>
           </tr>
         </thead>
-        <tbody id="schedulesTableBody"></tbody>
+        <tbody id="rosterMatrixBody"></tbody>
       </table>
     </div>
+    
+    <div id="rosterSummary" style="font-size: 12px; color: var(--muted); margin-top: 8px;"></div>
+  </div>
+</dialog>
+
+<!-- Edit Shift Modal -->
+<dialog id="editShiftModal">
+  <div class="modal" style="min-width: 350px;">
+    <h3>✏️ Edit Shift Assignment</h3>
+    <p id="editShiftInfo" style="font-size: 13px; color: var(--muted); margin: 8px 0;"></p>
+    
+    <div class="row">
+      <label>Agent</label>
+      <input id="editShiftAgent" readonly />
+    </div>
+    <div class="row">
+      <label>Day(s)</label>
+      <div id="editShiftDays" style="display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0;">
+        <!-- Day checkboxes populated by JS -->
+      </div>
+    </div>
+    <div class="row">
+      <label>Shift</label>
+      <select id="editShiftCode" style="width: 100%;">
+        <!-- Options populated by JS -->
+      </select>
+    </div>
+    <div class="row">
+      <label>Effective Date</label>
+      <input id="editShiftEffectiveDate" type="date" title="Changes will apply from this date onwards" />
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin: 4px 0 8px 0;">
+      ℹ️ Previous schedule will be preserved as history up to the day before effective date.
+    </div>
+    
+    <footer>
+      <button class="btn" id="editShiftCancel">Cancel</button>
+      <button class="btn accent" id="editShiftSave">Save Changes</button>
+    </footer>
+  </div>
+</dialog>
+
+<!-- Edit Lead Modal -->
+<dialog id="editLeadModal">
+  <div class="modal" style="min-width: 320px;">
+    <h3>👤 Edit Agent Lead</h3>
+    <p id="editLeadInfo" style="font-size: 13px; color: var(--muted); margin: 8px 0;"></p>
+    
+    <div class="row">
+      <label>Agent</label>
+      <input id="editLeadAgent" readonly />
+    </div>
+    <div class="row">
+      <label>Lead</label>
+      <select id="editLeadSelect" style="width: 100%;">
+        <!-- Options populated by JS -->
+      </select>
+    </div>
+    <div class="row">
+      <label>Effective Date</label>
+      <input id="editLeadEffectiveDate" type="date" title="Change will apply from this date" />
+    </div>
+    
+    <footer>
+      <button class="btn" id="editLeadCancel">Cancel</button>
+      <button class="btn accent" id="editLeadSave">Save</button>
+    </footer>
+  </div>
+</dialog>
+
+<!-- Add Agent Modal -->
+<dialog id="addAgentModal">
+  <div class="modal" style="min-width: 400px;">
+    <h3>➕ Add Agent to Roster</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
+      Add a new technician to the schedule roster.
+    </p>
+    
+    <div class="row">
+      <label>Agent ID</label>
+      <input id="addAgentId" placeholder="e.g., 10050" />
+    </div>
+    <div class="row">
+      <label>Full Name</label>
+      <input id="addAgentName" placeholder="e.g., John Doe" />
+    </div>
+    <div class="row">
+      <label>Lead</label>
+      <select id="addAgentLead">
+        <!-- Options populated by JS -->
+      </select>
+    </div>
+    <div class="row">
+      <label>Effective Date</label>
+      <input id="addAgentEffectiveDate" type="date" title="Agent will appear in roster from this date" />
+    </div>
+    <div class="row">
+      <label>Default Shift</label>
+      <select id="addAgentDefaultShift">
+        <!-- Options populated by JS -->
+      </select>
+    </div>
+    <div class="row">
+      <label>Working Days</label>
+      <div id="addAgentWorkingDays" style="display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0;">
+        <!-- Day checkboxes populated by JS -->
+      </div>
+    </div>
+    
+    <div id="addAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
+    
+    <footer>
+      <button class="btn" id="addAgentCancel">Cancel</button>
+      <button class="btn accent" id="addAgentSave">Add Agent</button>
+    </footer>
+  </div>
+</dialog>
+
+<!-- Remove Agent Modal -->
+<dialog id="removeAgentModal">
+  <div class="modal" style="min-width: 350px;">
+    <h3>🚫 Remove Agent from Roster</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
+      Set an end date for this agent. History will be preserved.
+    </p>
+    
+    <div class="row">
+      <label>Agent</label>
+      <input id="removeAgentName" readonly />
+    </div>
+    <div class="row">
+      <label>Last Active Date</label>
+      <input id="removeAgentEffectiveDate" type="date" title="Agent will not appear in roster after this date" />
+    </div>
+    <div style="font-size: 11px; color: var(--muted); margin: 4px 0 8px 0;">
+      ⚠️ This does not delete history. Agent can be reactivated later.
+    </div>
+    
+    <div id="removeAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
+    
+    <footer>
+      <button class="btn" id="removeAgentCancel">Cancel</button>
+      <button class="btn" id="removeAgentSave" style="background: var(--unjust); border-color: var(--unjust);">Remove</button>
+    </footer>
+  </div>
+</dialog>
+
+<!-- Manage Shift Templates Modal -->
+<dialog id="manageShiftsModal">
+  <div class="modal" style="min-width: 600px; max-width: 700px;">
+    <h3>⚙️ Manage Shift Templates</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
+      Add, edit or remove shift categories. Changes will apply to new assignments.
+    </p>
+    
+    <!-- Existing Shifts Table -->
+    <div style="max-height: 300px; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px;">
+      <table style="width: 100%; font-size: 12px; margin: 0;">
+        <thead style="position: sticky; top: 0; background: var(--card);">
+          <tr>
+            <th style="padding: 8px; text-align: left;">Code</th>
+            <th style="padding: 8px; text-align: left;">Start</th>
+            <th style="padding: 8px; text-align: left;">End</th>
+            <th style="padding: 8px; text-align: center;">Color</th>
+            <th style="padding: 8px; text-align: center;">Midnight</th>
+            <th style="padding: 8px; text-align: center;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="shiftTemplatesBody">
+          <!-- Populated by JS -->
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- Add/Edit Form -->
+    <div style="background: var(--bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+      <h4 id="shiftFormTitle" style="margin: 0 0 12px 0; font-size: 14px;">➕ Add New Shift</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+        <div class="field">
+          <label>Shift Code</label>
+          <input id="shiftFormCode" placeholder="e.g., S11" style="width: 100%;" />
+        </div>
+        <div class="field">
+          <label>Start Time</label>
+          <input id="shiftFormStart" type="time" style="width: 100%;" />
+        </div>
+        <div class="field">
+          <label>End Time</label>
+          <input id="shiftFormEnd" type="time" style="width: 100%;" />
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;">
+        <div class="field">
+          <label>Color</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input id="shiftFormColor" type="color" value="#3B82F6" style="width: 50px; height: 32px; padding: 0; border: none;" />
+            <span id="shiftFormColorHex" style="font-size: 11px; color: var(--muted);">#3B82F6</span>
+          </div>
+        </div>
+        <div class="field">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input id="shiftFormMidnight" type="checkbox" />
+            Crosses Midnight
+          </label>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button class="btn accent" id="shiftFormSave">Save Shift</button>
+        <button class="btn" id="shiftFormCancel" style="display: none;">Cancel Edit</button>
+      </div>
+    </div>
+    
     <footer style="margin-top: 16px;">
-      <button class="btn accent" id="schedulesViewClose">Close</button>
+      <button class="btn accent" id="manageShiftsClose">Close</button>
     </footer>
   </div>
 </dialog>
@@ -1031,125 +1335,934 @@
     });
   })();
 
-  // === View Schedules ===
+  // === View Schedules - Roster Matrix ===
   (function() {
     const schedulesViewModal = document.getElementById('schedulesViewModal');
     const schedulesViewClose = document.getElementById('schedulesViewClose');
-    const schedulesTableBody = document.getElementById('schedulesTableBody');
-    let schedulesData = [];
-    let sortColumn = null;
-    let sortDirection = 'asc';
-
-    function renderSchedules() {
-      if (schedulesData.length === 0) {
-        schedulesTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--muted);">No schedules found</td></tr>';
+    const rosterMatrixBody = document.getElementById('rosterMatrixBody');
+    const rosterSummary = document.getElementById('rosterSummary');
+    const shiftLegend = document.getElementById('shiftLegend');
+    
+    // State
+    let currentWeekStart = null;
+    let rosterData = null;
+    let shiftCatalog = {};
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    
+    // Get Monday of current week
+    function getMondayOfWeek(d) {
+      const date = new Date(d);
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(date.setDate(diff));
+    }
+    
+    // Format date as YYYY-MM-DD
+    function formatDate(d) {
+      return d.toISOString().split('T')[0];
+    }
+    
+    // Add days to date
+    function addDays(d, n) {
+      const result = new Date(d);
+      result.setDate(result.getDate() + n);
+      return result;
+    }
+    
+    // Initialize filters
+    function initFilters() {
+      const rosterLeadFilter = document.getElementById('rosterLeadFilter');
+      const rosterAgentFilter = document.getElementById('rosterAgentFilter');
+      
+      // Populate lead filter from APP_OPTIONS
+      rosterLeadFilter.innerHTML = '<option value="">All Leads</option>' + 
+        APP_OPTIONS.leads.map(l => `<option value="${l}">${l}</option>`).join('');
+      
+      // Populate agent filter
+      rosterAgentFilter.innerHTML = '<option value="">All Agents</option>' + 
+        APP_OPTIONS.agents.map(a => `<option value="${a.id}">${a.id} — ${a.name}</option>`).join('');
+      
+      // Set current date (today)
+      currentWeekStart = new Date();
+      document.getElementById('rosterWeekStart').value = formatDate(currentWeekStart);
+    }
+    
+    // Build shift legend from API data or shiftCatalog
+    function buildLegend() {
+      // Use shiftCatalog from roster data if available, otherwise fetch from API
+      let templates = [];
+      if (shiftCatalog && Object.keys(shiftCatalog).length > 0) {
+        templates = Object.entries(shiftCatalog).map(([code, info]) => ({
+          shift_code: code,
+          color: info.color,
+          start_time: info.start,
+          end_time: info.end
+        }));
+      }
+      
+      if (templates.length === 0) {
+        // Fetch from API
+        fetch('/api/roster/templates')
+          .then(res => res.json())
+          .then(data => {
+            templates = data.templates || [];
+            renderLegend(templates);
+          })
+          .catch(() => renderLegend([]));
+      } else {
+        renderLegend(templates);
+      }
+    }
+    
+    function renderLegend(templates) {
+      const legendHtml = templates.map(t => {
+        const timeRange = t.shift_code === 'OFF' ? 'Day Off' : 
+          (t.start_time && t.end_time ? `${t.start_time}-${t.end_time}` : '—');
+        return `
+          <span class="roster-legend-item" style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; padding: 3px 6px; background: rgba(0,0,0,0.05); border-radius: 4px;">
+            <span class="roster-legend-color" style="background: ${t.color || '#6B7280'}; width: 14px; height: 14px; border-radius: 3px; display: inline-block;"></span>
+            <strong style="font-size: 11px;">${t.shift_code}</strong>
+            <span style="font-size: 10px; color: var(--muted);">${timeRange}</span>
+          </span>
+        `;
+      }).join('');
+      shiftLegend.innerHTML = `<span style="font-size: 11px; color: var(--muted); margin-right: 8px; align-self: center;">Shift Codes:</span>` + legendHtml;
+    }
+    
+    // Update header dates (no longer shows dates in header)
+    function updateHeaderDates() {
+      // No-op: dates are now controlled by the effective date filter
+    }
+    
+    // Load roster data from API
+    async function loadRosterMatrix() {
+      rosterMatrixBody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;">⏳ Loading roster...</td></tr>';
+      
+      const weekStart = document.getElementById('rosterWeekStart').value;
+      const lead = document.getElementById('rosterLeadFilter').value;
+      const agentId = document.getElementById('rosterAgentFilter').value;
+      const status = document.getElementById('rosterStatusFilter').value || 'all';
+      
+      if (weekStart) {
+        currentWeekStart = new Date(weekStart + 'T00:00:00');
+      }
+      
+      updateHeaderDates();
+      
+      try {
+        let url = `/api/roster/matrix?week_start=${formatDate(currentWeekStart)}&status=${status}`;
+        if (lead) url += `&lead=${encodeURIComponent(lead)}`;
+        if (agentId) url += `&agent_id=${encodeURIComponent(agentId)}`;
+        
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        
+        rosterData = await res.json();
+        shiftCatalog = rosterData.shift_catalog || {};
+        
+        buildLegend();
+        renderRosterMatrix();
+      } catch (err) {
+        console.error('Error loading roster:', err);
+        rosterMatrixBody.innerHTML = `<tr><td colspan="13" style="text-align: center; color: var(--unjust); padding: 20px;">❌ ${err.message}</td></tr>`;
+      }
+    }
+    
+    // Get shift color based on shift code
+    function getShiftColor(shiftCode) {
+      const colors = {
+        'S1': '#8B5CF6', 'S2': '#3B82F6', 'S3': '#06B6D4', 'S4': '#10B981',
+        'S5': '#22C55E', 'S6': '#84CC16', 'S7': '#EAB308', 'S8': '#F97316',
+        'S9': '#EF4444', 'S10': '#EC4899', 'OFF': '#6B7280'
+      };
+      return colors[shiftCode] || '#374151';
+    }
+    
+    // Get text color for shift (dark for light backgrounds)
+    function getShiftTextColor(shiftCode) {
+      const darkText = ['S5', 'S6', 'S7'];
+      return darkText.includes(shiftCode) ? '#000' : '#fff';
+    }
+    
+    // Get schedule display (primary time range)
+    function getScheduleDisplay(agent) {
+      // Find the most common shift for weekdays
+      const weekdayShifts = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        .map(d => agent.days[d])
+        .filter(d => d && d.shift_code && d.shift_code !== 'OFF');
+      
+      if (weekdayShifts.length === 0) return '—';
+      
+      const firstShift = weekdayShifts[0];
+      if (firstShift.start_time && firstShift.end_time) {
+        return `${firstShift.start_time} - ${firstShift.end_time}`;
+      }
+      return '—';
+    }
+    
+    // Generate user_id from full name (first letter of first name + last name)
+    function generateUserId(fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length < 2) return fullName.toLowerCase().substring(0, 8);
+      const firstName = parts[0];
+      const lastName = parts[parts.length - 1];
+      return (firstName.charAt(0) + lastName).toLowerCase().substring(0, 10);
+    }
+    
+    // Render the roster matrix
+    function renderRosterMatrix() {
+      if (!rosterData || !rosterData.agents || rosterData.agents.length === 0) {
+        rosterMatrixBody.innerHTML = '<tr><td colspan="13" style="text-align: center; color: var(--muted); padding: 20px;">No agents found for this period</td></tr>';
+        rosterSummary.textContent = 'Agents: 0';
         return;
       }
+      
+      const html = rosterData.agents.map((agent, idx) => {
+        const isInactive = agent.status === 'Inactive';
+        const rowBg = idx % 2 === 0 ? 'var(--card)' : 'var(--even-row)';
+        const rowStyle = isInactive ? 'opacity: 0.6;' : '';
+        const userId = generateUserId(agent.full_name);
+        const schedule = getScheduleDisplay(agent);
+        
+        // Find primary shift color for schedule column
+        const primaryShift = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+          .map(d => agent.days[d]?.shift_code)
+          .find(s => s && s !== 'OFF') || '';
+        const scheduleColor = getShiftColor(primaryShift);
+        
+        const cellsHtml = DAYS.map(day => {
+          const dayData = agent.days[day] || { shift_code: '', color: '#374151' };
+          const shiftCode = dayData.shift_code || '';
+          const bgColor = getShiftColor(shiftCode);
+          const textColor = getShiftTextColor(shiftCode);
+          
+          const tooltipParts = [
+            `Agent: ${agent.full_name} (${agent.agent_id})`,
+            `Day: ${day}`,
+            `Shift: ${shiftCode || 'Not assigned'}`
+          ];
+          if (dayData.start_time && dayData.end_time) {
+            tooltipParts.push(`Hours: ${dayData.start_time} - ${dayData.end_time}`);
+          }
+          const tooltip = tooltipParts.join('\\n');
+          
+          return `
+            <td style="padding: 2px;">
+              <div class="roster-cell" 
+                   style="background: ${bgColor}; color: ${textColor}; padding: 6px 4px; border-radius: 3px; cursor: pointer; font-weight: 600; font-size: 11px;"
+                   data-shift="${shiftCode}" 
+                   data-agent="${agent.agent_id}"
+                   data-day="${day}"
+                   title="${tooltip}"
+                   onclick="openEditShiftModal('${agent.agent_id}', '${agent.full_name}', '${day}', '${shiftCode}')">
+                ${shiftCode || '—'}
+              </div>
+            </td>
+          `;
+        }).join('');
+        
+        return `
+          <tr style="${rowStyle} background: ${rowBg};">
+            <td style="position: sticky; left: 0; background: ${rowBg}; z-index: 1; padding: 6px; font-weight: 500;">${agent.agent_id}</td>
+            <td style="position: sticky; left: 90px; background: ${rowBg}; z-index: 1; padding: 6px; font-size: 11px;">${userId}</td>
+            <td style="position: sticky; left: 170px; background: ${rowBg}; z-index: 1; padding: 6px; text-align: left; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;" title="${agent.full_name}">${agent.full_name}</td>
+            <td style="padding: 4px; background: ${scheduleColor}; color: ${primaryShift ? getShiftTextColor(primaryShift) : 'var(--muted)'}; font-weight: 600; font-size: 11px;">${schedule}</td>
+            ${cellsHtml}
+            <td style="padding: 6px; cursor: pointer;" onclick="openEditLeadModal('${agent.agent_id}', '${agent.full_name}', '${agent.lead || ''}')" title="Click to edit lead">
+              <span style="padding: 2px 6px; background: var(--bg); border-radius: 4px; font-size: 11px;">${agent.lead || '—'}</span>
+            </td>
+            <td style="padding: 4px;">
+              ${isInactive ? 
+                `<button class="btn" style="padding: 3px 6px; font-size: 10px; background: var(--ok);" 
+                        onclick="reactivateAgent('${agent.agent_id}', '${agent.full_name}')"
+                        title="Reactivate agent">✅</button>` :
+                `<button class="btn" style="padding: 3px 6px; font-size: 10px; color: var(--unjust);" 
+                        onclick="openRemoveAgentModal('${agent.agent_id}', '${agent.full_name}')"
+                        title="Remove agent from roster">🗑️</button>`
+              }
+            </td>
+          </tr>
+        `;
+      }).join('');
+      
+      rosterMatrixBody.innerHTML = html;
+      rosterSummary.textContent = `Total Agents: ${rosterData.total_agents} | Effective Date: ${formatDate(currentWeekStart)}`;
+    }
+    
+    // Track pending changes
+    let pendingChanges = [];
+    
+    function updateSaveButton() {
+      const btnSave = document.getElementById('btnSaveChanges');
+      const countSpan = document.getElementById('pendingChangesCount');
+      if (pendingChanges.length > 0) {
+        btnSave.style.display = 'inline-flex';
+        countSpan.textContent = `${pendingChanges.length} pending change(s)`;
+      } else {
+        btnSave.style.display = 'none';
+        countSpan.textContent = '';
+      }
+    }
+    
+    function addPendingChange(change) {
+      // Remove existing change for same agent/day combo
+      pendingChanges = pendingChanges.filter(c => 
+        !(c.agent_id === change.agent_id && c.day_of_week === change.day_of_week)
+      );
+      pendingChanges.push(change);
+      updateSaveButton();
+    }
+    
+    // Save all pending changes
+    document.getElementById('btnSaveChanges').addEventListener('click', async () => {
+      if (pendingChanges.length === 0) return;
+      
+      const btnSave = document.getElementById('btnSaveChanges');
+      btnSave.disabled = true;
+      btnSave.textContent = '⏳ Saving...';
+      
+      try {
+        for (const change of pendingChanges) {
+          const res = await fetch('/api/roster/assignment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(change)
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to save change for ${change.agent_id}: ${await res.text()}`);
+          }
+        }
+        pendingChanges = [];
+        updateSaveButton();
+        loadRosterMatrix();
+        alert('✅ All changes saved successfully!');
+      } catch (err) {
+        console.error('Save error:', err);
+        alert('❌ Error saving changes: ' + err.message);
+      } finally {
+        btnSave.disabled = false;
+        btnSave.textContent = '💾 Save Changes';
+      }
+    });
+    
+    // Expose for edit modal
+    window.addPendingChange = addPendingChange;
+    
+    // Filter change handlers
+    document.getElementById('rosterWeekStart').addEventListener('change', loadRosterMatrix);
+    document.getElementById('rosterLeadFilter').addEventListener('change', loadRosterMatrix);
+    document.getElementById('rosterAgentFilter').addEventListener('change', loadRosterMatrix);
+    document.getElementById('rosterStatusFilter').addEventListener('change', loadRosterMatrix);
+    
+    // Open modal
+    document.getElementById('btnViewSchedules').addEventListener('click', () => {
+      initFilters();
+      buildLegend();
+      schedulesViewModal.showModal();
+      loadRosterMatrix();
+    });
+    
+    // Close modal
+    schedulesViewClose.addEventListener('click', () => schedulesViewModal.close());
+    
+    // Expose for global access
+    window.loadRosterMatrix = loadRosterMatrix;
+    window.currentWeekStart = () => currentWeekStart;
+    window.formatDate = formatDate;
+  })();
+  
+  // === Edit Shift Modal ===
+  (function() {
+    const editShiftModal = document.getElementById('editShiftModal');
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const SHIFTS = ['OFF', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'];
+    
+    // Build shift selector options
+    const shiftOptions = SHIFTS.map(s => `<option value="${s}">${s}</option>`).join('');
+    document.getElementById('editShiftCode').innerHTML = shiftOptions;
+    
+    // Build day checkboxes
+    const dayCheckboxes = DAYS.map(d => `
+      <label class="day-checkbox" data-day="${d}">
+        <input type="checkbox" value="${d}" />
+        ${d}
+      </label>
+    `).join('');
+    document.getElementById('editShiftDays').innerHTML = dayCheckboxes;
+    
+    // Toggle day selection
+    document.querySelectorAll('#editShiftDays .day-checkbox').forEach(label => {
+      label.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          const checkbox = label.querySelector('input');
+          checkbox.checked = !checkbox.checked;
+        }
+        label.classList.toggle('selected', label.querySelector('input').checked);
+      });
+    });
+    
+    // Open edit modal
+    window.openEditShiftModal = function(agentId, agentName, day, currentShift) {
+      document.getElementById('editShiftAgent').value = `${agentId} — ${agentName}`;
+      document.getElementById('editShiftInfo').textContent = `Editing shift for ${day}`;
+      
+      // Select current shift
+      document.getElementById('editShiftCode').value = currentShift || 'OFF';
+      
+      // Set effective date to Monday of current week
+      const weekStart = window.currentWeekStart ? window.currentWeekStart() : new Date();
+      document.getElementById('editShiftEffectiveDate').value = window.formatDate(weekStart);
+      
+      // Reset and select the clicked day
+      document.querySelectorAll('#editShiftDays .day-checkbox').forEach(label => {
+        const checkbox = label.querySelector('input');
+        const isDay = label.dataset.day === day;
+        checkbox.checked = isDay;
+        label.classList.toggle('selected', isDay);
+      });
+      
+      // Store agent info for save
+      editShiftModal.dataset.agentId = agentId;
+      
+      editShiftModal.showModal();
+    };
+    
+    // Cancel
+    document.getElementById('editShiftCancel').addEventListener('click', () => {
+      editShiftModal.close();
+    });
+    
+    // Save
+    document.getElementById('editShiftSave').addEventListener('click', async () => {
+      const agentId = editShiftModal.dataset.agentId;
+      const shiftCode = document.getElementById('editShiftCode').value;
+      const effectiveDate = document.getElementById('editShiftEffectiveDate').value;
+      
+      // Get selected days
+      const selectedDays = [];
+      document.querySelectorAll('#editShiftDays .day-checkbox input:checked').forEach(cb => {
+        selectedDays.push(cb.value);
+      });
+      
+      if (selectedDays.length === 0) {
+        alert('Please select at least one day');
+        return;
+      }
+      
+      if (!effectiveDate) {
+        alert('Please select an effective date');
+        return;
+      }
+      
+      try {
+        let res;
+        if (selectedDays.length === 1) {
+          // Single day update
+          res = await fetch('/api/roster/assignment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agent_id: agentId,
+              day_of_week: selectedDays[0],
+              shift_code: shiftCode,
+              effective_date: effectiveDate
+            })
+          });
+        } else {
+          // Bulk update
+          res = await fetch('/api/roster/assignment/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agent_id: agentId,
+              days_of_week: selectedDays,
+              shift_code: shiftCode,
+              effective_date: effectiveDate
+            })
+          });
+        }
+        
+        const data = await res.json();
+        if (res.ok) {
+          editShiftModal.close();
+          window.loadRosterMatrix();
+        } else {
+          alert(`Error: ${data.detail || 'Failed to update shift'}`);
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
+  })();
+  
+  // === Edit Lead Modal ===
+  (function() {
+    const editLeadModal = document.getElementById('editLeadModal');
+    
+    // Populate lead options
+    function populateLeadOptions(currentLead) {
+      const select = document.getElementById('editLeadSelect');
+      select.innerHTML = APP_OPTIONS.leads.map(l => 
+        `<option value="${l}" ${l === currentLead ? 'selected' : ''}>${l}</option>`
+      ).join('');
+    }
+    
+    // Open modal
+    window.openEditLeadModal = function(agentId, agentName, currentLead) {
+      document.getElementById('editLeadAgent').value = `${agentName} (${agentId})`;
+      document.getElementById('editLeadInfo').textContent = `Change the lead assignment for this agent.`;
+      populateLeadOptions(currentLead);
+      // Set effective date to today
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('editLeadEffectiveDate').value = today;
+      editLeadModal.dataset.agentId = agentId;
+      editLeadModal.showModal();
+    };
+    
+    // Cancel
+    document.getElementById('editLeadCancel').addEventListener('click', () => {
+      editLeadModal.close();
+    });
+    
+    // Save
+    document.getElementById('editLeadSave').addEventListener('click', async () => {
+      const agentId = editLeadModal.dataset.agentId;
+      const newLead = document.getElementById('editLeadSelect').value;
+      const effectiveDate = document.getElementById('editLeadEffectiveDate').value;
+      
+      if (!effectiveDate) {
+        alert('Please select an effective date');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/roster/agents/update-lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: agentId,
+            new_lead: newLead,
+            effective_date: effectiveDate
+          })
+        });
+        
+        const data = await res.json();
+        if (res.ok) {
+          editLeadModal.close();
+          window.loadRosterMatrix();
+        } else {
+          alert(`Error: ${data.detail || 'Failed to update lead'}`);
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
+  })();
+  
+  // === Add Agent Modal ===
+  (function() {
+    const addAgentModal = document.getElementById('addAgentModal');
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const SHIFTS = ['OFF', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'];
+    
+    // Build shift selector
+    document.getElementById('addAgentDefaultShift').innerHTML = SHIFTS.map(s => `<option value="${s}">${s}</option>`).join('');
+    document.getElementById('addAgentDefaultShift').value = 'S4';
+    
+    // Build working days checkboxes
+    const dayCheckboxes = DAYS.map(d => {
+      const isWorkday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(d);
+      return `
+        <label class="day-checkbox ${isWorkday ? 'selected' : ''}" data-day="${d}">
+          <input type="checkbox" value="${d}" ${isWorkday ? 'checked' : ''} />
+          ${d}
+        </label>
+      `;
+    }).join('');
+    document.getElementById('addAgentWorkingDays').innerHTML = dayCheckboxes;
+    
+    // Toggle day selection
+    document.querySelectorAll('#addAgentWorkingDays .day-checkbox').forEach(label => {
+      label.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          const checkbox = label.querySelector('input');
+          checkbox.checked = !checkbox.checked;
+        }
+        label.classList.toggle('selected', label.querySelector('input').checked);
+      });
+    });
+    
+    // Open modal
+    document.getElementById('btnAddAgent').addEventListener('click', () => {
+      document.getElementById('addAgentId').value = '';
+      document.getElementById('addAgentName').value = '';
+      document.getElementById('addAgentEffectiveDate').value = window.formatDate(new Date());
+      document.getElementById('addAgentStatus').textContent = '';
+      
+      // Populate lead dropdown
+      const leadSelect = document.getElementById('addAgentLead');
+      leadSelect.innerHTML = APP_OPTIONS.leads.map(l => `<option value="${l}">${l}</option>`).join('');
+      
+      addAgentModal.showModal();
+    });
+    
+    // Cancel
+    document.getElementById('addAgentCancel').addEventListener('click', () => {
+      addAgentModal.close();
+    });
+    
+    // Save
+    document.getElementById('addAgentSave').addEventListener('click', async () => {
+      const agentId = document.getElementById('addAgentId').value.trim();
+      const fullName = document.getElementById('addAgentName').value.trim();
+      const lead = document.getElementById('addAgentLead').value;
+      const effectiveDate = document.getElementById('addAgentEffectiveDate').value;
+      const defaultShift = document.getElementById('addAgentDefaultShift').value;
+      const statusEl = document.getElementById('addAgentStatus');
+      
+      // Get working days
+      const workingDays = [];
+      document.querySelectorAll('#addAgentWorkingDays .day-checkbox input:checked').forEach(cb => {
+        workingDays.push(cb.value);
+      });
+      
+      if (!agentId || !fullName) {
+        statusEl.textContent = '❌ Agent ID and Full Name are required';
+        statusEl.style.color = 'var(--unjust)';
+        return;
+      }
+      
+      statusEl.textContent = '⏳ Adding agent...';
+      statusEl.style.color = 'var(--muted)';
+      
+      try {
+        // Add agent to roster
+        const res = await fetch('/api/roster/agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: agentId,
+            full_name: fullName,
+            lead: lead,
+            effective_date: effectiveDate
+          })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to add agent');
+        }
+        
+        // Create shift assignments for working days
+        if (workingDays.length > 0) {
+          await fetch('/api/roster/assignment/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agent_id: agentId,
+              days_of_week: workingDays,
+              shift_code: defaultShift,
+              effective_date: effectiveDate
+            })
+          });
+          
+          // Set OFF for non-working days
+          const offDays = DAYS.filter(d => !workingDays.includes(d));
+          if (offDays.length > 0) {
+            await fetch('/api/roster/assignment/bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agent_id: agentId,
+                days_of_week: offDays,
+                shift_code: 'OFF',
+                effective_date: effectiveDate
+              })
+            });
+          }
+        }
+        
+        statusEl.textContent = `✅ Agent ${fullName} added successfully!`;
+        statusEl.style.color = 'var(--ok)';
+        
+        setTimeout(() => {
+          addAgentModal.close();
+          window.loadRosterMatrix();
+        }, 1500);
+        
+      } catch (err) {
+        statusEl.textContent = `❌ ${err.message}`;
+        statusEl.style.color = 'var(--unjust)';
+      }
+    });
+  })();
+  
+  // === Remove Agent Modal ===
+  (function() {
+    const removeAgentModal = document.getElementById('removeAgentModal');
+    
+    window.openRemoveAgentModal = function(agentId, agentName) {
+      document.getElementById('removeAgentName').value = `${agentId} — ${agentName}`;
+      document.getElementById('removeAgentEffectiveDate').value = window.formatDate(new Date());
+      document.getElementById('removeAgentStatus').textContent = '';
+      
+      removeAgentModal.dataset.agentId = agentId;
+      removeAgentModal.showModal();
+    };
+    
+    // Cancel
+    document.getElementById('removeAgentCancel').addEventListener('click', () => {
+      removeAgentModal.close();
+    });
+    
+    // Confirm removal
+    document.getElementById('removeAgentSave').addEventListener('click', async () => {
+      const agentId = removeAgentModal.dataset.agentId;
+      const effectiveDate = document.getElementById('removeAgentEffectiveDate').value;
+      const statusEl = document.getElementById('removeAgentStatus');
+      
+      if (!effectiveDate) {
+        statusEl.textContent = '❌ Please select a date';
+        statusEl.style.color = 'var(--unjust)';
+        return;
+      }
+      
+      statusEl.textContent = '⏳ Removing agent...';
+      statusEl.style.color = 'var(--muted)';
+      
+      try {
+        const res = await fetch('/api/roster/agents/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: agentId,
+            effective_date: effectiveDate
+          })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to remove agent');
+        }
+        
+        statusEl.textContent = `✅ Agent removed from roster`;
+        statusEl.style.color = 'var(--ok)';
+        
+        setTimeout(() => {
+          removeAgentModal.close();
+          window.loadRosterMatrix();
+        }, 1500);
+        
+      } catch (err) {
+        statusEl.textContent = `❌ ${err.message}`;
+        statusEl.style.color = 'var(--unjust)';
+      }
+    });
+  })();
 
-      schedulesTableBody.innerHTML = schedulesData.map(s => `
+  // === Reactivate Agent Function ===
+  window.reactivateAgent = async function(agentId, agentName) {
+    if (!confirm(`Reactivate agent ${agentName} (${agentId})?`)) return;
+    
+    const effectiveDate = window.formatDate(new Date());
+    
+    try {
+      const res = await fetch('/api/roster/agents/reactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: agentId,
+          effective_date: effectiveDate
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to reactivate agent');
+      }
+      
+      alert(`✅ Agent ${agentName} has been reactivated.`);
+      window.loadRosterMatrix();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  // === Manage Shift Templates Modal ===
+  (function() {
+    const modal = document.getElementById('manageShiftsModal');
+    const tbody = document.getElementById('shiftTemplatesBody');
+    const formTitle = document.getElementById('shiftFormTitle');
+    const codeInput = document.getElementById('shiftFormCode');
+    const startInput = document.getElementById('shiftFormStart');
+    const endInput = document.getElementById('shiftFormEnd');
+    const colorInput = document.getElementById('shiftFormColor');
+    const colorHex = document.getElementById('shiftFormColorHex');
+    const midnightCheck = document.getElementById('shiftFormMidnight');
+    const saveBtn = document.getElementById('shiftFormSave');
+    const cancelBtn = document.getElementById('shiftFormCancel');
+    
+    let editingCode = null;
+    let shiftTemplates = [];
+    
+    // Update color hex display
+    colorInput.addEventListener('input', () => {
+      colorHex.textContent = colorInput.value.toUpperCase();
+    });
+    
+    // Load templates
+    async function loadTemplates() {
+      try {
+        const res = await fetch('/api/roster/templates');
+        const data = await res.json();
+        shiftTemplates = data.templates || [];
+        renderTemplates();
+      } catch (err) {
+        console.error('Failed to load templates:', err);
+      }
+    }
+    
+    // Render templates table
+    function renderTemplates() {
+      tbody.innerHTML = shiftTemplates.map(t => `
         <tr>
-          <td>${s.agent_id}</td>
-          <td>${s.name}</td>
-          <td>${s.lead}</td>
-          <td>${s.shift}</td>
-          <td>${s.expected_start}</td>
-          <td>${s.expected_end}</td>
-          <td>${s.working_days}</td>
-          <td>${s.days_off}</td>
+          <td style="padding: 6px; font-weight: 600;">${t.shift_code}</td>
+          <td style="padding: 6px;">${t.start_time || '—'}</td>
+          <td style="padding: 6px;">${t.end_time || '—'}</td>
+          <td style="padding: 6px; text-align: center;">
+            <span style="display: inline-block; width: 24px; height: 24px; background: ${t.color}; border-radius: 4px;"></span>
+          </td>
+          <td style="padding: 6px; text-align: center;">${t.crosses_midnight ? '✓' : ''}</td>
+          <td style="padding: 6px; text-align: center;">
+            ${t.shift_code !== 'OFF' ? `
+              <button class="btn" style="padding: 2px 6px; font-size: 10px;" onclick="editShiftTemplate('${t.shift_code}')">✏️</button>
+              <button class="btn" style="padding: 2px 6px; font-size: 10px; color: var(--unjust);" onclick="deleteShiftTemplate('${t.shift_code}')">🗑️</button>
+            ` : '<span style="color: var(--muted); font-size: 10px;">System</span>'}
+          </td>
         </tr>
       `).join('');
     }
-
-    function sortSchedules(column) {
-      if (sortColumn === column) {
-        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-      } else {
-        sortColumn = column;
-        sortDirection = 'asc';
-      }
-
-      schedulesData.sort((a, b) => {
-        let aVal = String(a[column] || '').toLowerCase();
-        let bVal = String(b[column] || '').toLowerCase();
-        
-        if (sortDirection === 'asc') {
-          return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-        } else {
-          return aVal > bVal ? -1 : aVal < bVal ? 1 : 0;
-        }
-      });
-
-      // Update sort indicators
-      document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
-        const col = th.dataset.column;
-        const label = th.dataset.label;
-        if (col === column) {
-          th.textContent = label + ' ' + (sortDirection === 'asc' ? '↑' : '↓');
-        } else {
-          th.textContent = label + ' ↕';
-        }
-      });
-
-      renderSchedules();
+    
+    // Reset form
+    function resetForm() {
+      editingCode = null;
+      formTitle.textContent = '➕ Add New Shift';
+      codeInput.value = '';
+      codeInput.disabled = false;
+      startInput.value = '';
+      endInput.value = '';
+      colorInput.value = '#3B82F6';
+      colorHex.textContent = '#3B82F6';
+      midnightCheck.checked = false;
+      saveBtn.textContent = 'Add Shift';
+      cancelBtn.style.display = 'none';
     }
-
-    // Open modal and load schedules
-    document.getElementById('btnViewSchedules').addEventListener('click', async () => {
-      schedulesViewModal.showModal();
-      schedulesTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">⏳ Loading...</td></tr>';
-      document.getElementById('scheduleEffectiveDate').textContent = 'Loading...';
+    
+    // Edit template
+    window.editShiftTemplate = function(code) {
+      const template = shiftTemplates.find(t => t.shift_code === code);
+      if (!template) return;
+      
+      editingCode = code;
+      formTitle.textContent = `✏️ Edit Shift: ${code}`;
+      codeInput.value = code;
+      codeInput.disabled = true;
+      startInput.value = template.start_time || '';
+      endInput.value = template.end_time || '';
+      colorInput.value = template.color || '#3B82F6';
+      colorHex.textContent = template.color || '#3B82F6';
+      midnightCheck.checked = template.crosses_midnight || false;
+      saveBtn.textContent = 'Update Shift';
+      cancelBtn.style.display = 'inline-flex';
+    };
+    
+    // Delete template
+    window.deleteShiftTemplate = async function(code) {
+      if (!confirm(`Delete shift template "${code}"?\n\nThis will fail if any agents are currently assigned to this shift.`)) return;
       
       try {
-        // Fetch schedules
-        const res = await fetch('/schedules');
+        const res = await fetch(`/api/roster/templates/${code}`, { method: 'DELETE' });
         const data = await res.json();
         
-        // Fetch schedule versions to get the latest effective date
-        try {
-          const versionsRes = await fetch('/schedule-versions?token=');
-          if (versionsRes.ok) {
-            const versionsData = await versionsRes.json();
-            if (versionsData.versions && versionsData.versions.length > 0) {
-              const latestVersion = versionsData.versions[0]; // Assuming first is latest
-              document.getElementById('scheduleEffectiveDate').textContent = latestVersion.effective_date || 'N/A';
-            } else {
-              document.getElementById('scheduleEffectiveDate').textContent = 'N/A';
-            }
-          } else {
-            document.getElementById('scheduleEffectiveDate').textContent = 'N/A';
-          }
-        } catch (err) {
-          document.getElementById('scheduleEffectiveDate').textContent = 'Unable to fetch';
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to delete template');
         }
         
-        if (res.ok && data.agents) {
-          schedulesData = data.agents;
-          sortColumn = null;
-          sortDirection = 'asc';
-          // Reset sort indicators
-          document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
-            const label = th.dataset.label;
-            th.textContent = label + ' ↕';
-          });
-          renderSchedules();
-        } else {
-          schedulesTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--unjust);">Failed to load schedules</td></tr>';
-        }
+        await loadTemplates();
+        alert(`✅ Shift ${code} deleted successfully.`);
       } catch (err) {
-        schedulesTableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--unjust);">❌ Error: ${err.message}</td></tr>`;
+        alert(`❌ ${err.message}`);
+      }
+    };
+    
+    // Cancel edit
+    cancelBtn.addEventListener('click', resetForm);
+    
+    // Save template
+    saveBtn.addEventListener('click', async () => {
+      const code = codeInput.value.trim().toUpperCase();
+      const start = startInput.value;
+      const end = endInput.value;
+      const color = colorInput.value;
+      const crosses = midnightCheck.checked;
+      
+      if (!code || !start || !end) {
+        alert('Please fill in Shift Code, Start Time, and End Time');
+        return;
+      }
+      
+      const payload = {
+        shift_code: code,
+        start_time: start,
+        end_time: end,
+        color: color,
+        crosses_midnight: crosses
+      };
+      
+      try {
+        let res;
+        if (editingCode) {
+          res = await fetch(`/api/roster/templates/${editingCode}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          res = await fetch('/api/roster/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+        
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to save template');
+        }
+        
+        await loadTemplates();
+        resetForm();
+        alert(`✅ Shift ${code} saved successfully.`);
+      } catch (err) {
+        alert(`❌ ${err.message}`);
       }
     });
-
-    // Add click handlers for sortable columns
-    document.querySelectorAll('#schedulesTable th.sortable').forEach(th => {
-      th.addEventListener('click', () => {
-        const column = th.dataset.column;
-        sortSchedules(column);
-      });
+    
+    // Open modal
+    document.getElementById('btnManageShifts').addEventListener('click', () => {
+      resetForm();
+      loadTemplates();
+      modal.showModal();
     });
-
+    
     // Close modal
-    schedulesViewClose.addEventListener('click', () => schedulesViewModal.close());
+    document.getElementById('manageShiftsClose').addEventListener('click', () => {
+      modal.close();
+      // Reload roster to reflect any changes
+      if (window.loadRosterMatrix) window.loadRosterMatrix();
+    });
   })();
 </script>
 </body>
