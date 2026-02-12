@@ -1,4 +1,19 @@
 import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+
+# SQLAlchemy support for FastAPI endpoints
+SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://user:password@localhost:5432/attendance_db")
+engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 import sqlite3
 from datetime import date, datetime
 from typing import Dict, Tuple, Any, Optional, List
@@ -6,6 +21,7 @@ import pandas as pd
 
 from .storage import sync_db_to_r2
 
+import os
 # Support either local SQLite or Postgres via DATABASE_URL (Heroku)
 DB_PATH = "attendance.db"
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -391,25 +407,34 @@ def get_justifications_map(start: date, end: date) -> Dict[Tuple[str, date], Dic
 
 
 def get_all_agents_and_leads() -> Tuple[List[str], List[Dict[str, str]]]:
-    """Get all unique leads and agents from all schedule versions and the base CSV."""
+    """Get all unique leads and agents from all schedule versions and the base CSV.
+    Filters out agents that have been deleted from the roster.
+    """
     from .logic import load_schedule  # Import here to avoid circular import
+    from .shift_db import get_all_roster_agent_ids  # Get current roster agents
     
     leads = set()
     agents = {}  # agent_id -> {"id": agent_id, "name": name}
     
-    # Add from base CSV schedule
+    # Get set of agent IDs that still exist in the roster
+    roster_agent_ids = get_all_roster_agent_ids()
+    
+    # Add from base CSV schedule (only if agent still in roster)
     base_sched = load_schedule()
     for _, row in base_sched.iterrows():
-        leads.add(str(row["lead"]))
-        agents[str(row["agent_id"])] = {"id": str(row["agent_id"]), "name": str(row["name"])}
+        agent_id = str(row["agent_id"])
+        if agent_id in roster_agent_ids:
+            leads.add(str(row["lead"]))
+            agents[agent_id] = {"id": agent_id, "name": str(row["name"])}
     
-    # Add from all schedule versions
+    # Add from all schedule versions (only if agent still in roster)
     versions = get_all_schedule_versions()
     for version in versions:
         entries = get_schedule_entries_for_version(version["id"])
         for entry in entries:
-            leads.add(entry["lead"])
-            agents[entry["agent_id"]] = {"id": entry["agent_id"], "name": entry["name"]}
+            if entry["agent_id"] in roster_agent_ids:
+                leads.add(entry["lead"])
+                agents[entry["agent_id"]] = {"id": entry["agent_id"], "name": entry["name"]}
     
     return sorted(list(leads)), list(agents.values())
 
@@ -457,3 +482,20 @@ def get_unique_shifts() -> List[str]:
     """
     # TODO: Implement unique shifts retrieval
     return ["Morning", "Afternoon", "Night"]
+
+
+def get_agent_schedules(agent_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Get agent's schedules by day of week.
+    Returns dict with day keys (mon, tue, etc.) mapping to list of schedule ranges.
+    """
+    # TODO: Implement multi-schedule support
+    return {}
+
+
+def get_agent(agent_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get agent details by ID.
+    """
+    # TODO: Implement agent lookup
+    return None

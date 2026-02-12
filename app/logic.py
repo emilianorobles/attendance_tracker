@@ -2,8 +2,13 @@ import pandas as pd
 from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, Any, Tuple, List
 
-from .utils import parse_hhmm_or_hhmmss, weekday_token, parse_days_list
-from .database import get_justifications_map, get_schedule_for_date, get_single_day_override_db, get_new_schedule_override
+
+from .utils import parse_hhmm_or_hhmmss, weekday_token, weekday_short, parse_days_list
+from .utils import check_time_in_schedule_ranges, get_expected_intervals_for_day, find_best_matching_interval
+from .database import (
+    get_justifications_map, get_schedule_for_date, get_single_day_override_db, 
+    get_new_schedule_override, get_agent_schedules, get_agent
+)
 
 CSV_SCHEDULE = "schedule.csv"
 CSV_ACTUALS = "actuals.csv"
@@ -53,14 +58,24 @@ def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     """
     Get the schedule that was effective on target_date.
     First checks the database for versioned schedules, then falls back to CSV.
+    Filters out agents that have been deleted from the roster.
     """
+    from .shift_db import get_all_roster_agent_ids
+    
+    # Get set of agent IDs that still exist in the roster
+    roster_agent_ids = get_all_roster_agent_ids()
+    
     # Try to get versioned schedule from database
     db_schedule = get_schedule_for_date(target_date)
     if db_schedule is not None and not db_schedule.empty:
-        return _process_schedule_df(db_schedule)
+        df = _process_schedule_df(db_schedule)
+        # Filter out deleted agents
+        df = df[df["agent_id"].isin(roster_agent_ids)]
+        return df
     
     # Fall back to CSV file (for dates before any versioned schedule)
-    return SCHEDULE_DF
+    # Filter out deleted agents
+    return SCHEDULE_DF[SCHEDULE_DF["agent_id"].isin(roster_agent_ids)]
 
 
 def get_effective_schedule_for_agent(agent_id: str, target_date: date, base_row: pd.Series) -> pd.Series:
@@ -130,6 +145,12 @@ def load_actuals() -> pd.DataFrame:
 SCHEDULE_DF = load_schedule()
 VALID_AGENT_IDS = set(SCHEDULE_DF["agent_id"].tolist())
 
+
+def get_valid_agent_ids() -> set:
+    """Get set of valid agent IDs that still exist in the roster."""
+    from .shift_db import get_all_roster_agent_ids
+    return get_all_roster_agent_ids()
+
 def get_actuals_df() -> pd.DataFrame:
     """Relee actuals.csv en cada petición para reflejar cambios sin reiniciar."""
     return load_actuals()
@@ -148,6 +169,98 @@ def expected_interval_for_day(agent_row: pd.Series, day: date) -> Optional[Tuple
     if end_dt <= start_dt:
         end_dt = end_dt + timedelta(days=1)
     return start_dt, end_dt, bool(agent_row["is_night"])
+
+
+def get_multi_schedule_intervals(agent_id: str, target_date: date) -> List[Tuple[datetime, datetime, str, bool]]:
+    """
+    Get all expected intervals for an agent on a specific date using the new multi-schedule system.
+    Falls back to empty list if agent not found in new system.
+    
+    Returns list of tuples: (start_dt, end_dt, shift_code, crosses_midnight)
+    """
+    # Get agent's schedules from new system
+    schedules = get_agent_schedules(agent_id)
+    
+    # Get day of week
+    day_name = weekday_short(target_date)
+    day_ranges = schedules.get(day_name, [])
+    
+    if not day_ranges:
+        return []
+    
+    return get_expected_intervals_for_day(day_ranges, target_date)
+
+
+def compute_delay_with_multi_schedule(
+    agent_id: str, 
+    target_date: date, 
+    actual_start_t: Optional[time],
+    actual_end_t: Optional[time]
+) -> Dict[str, Any]:
+    """
+    Compute delay/status using multi-schedule ranges.
+    
+    Returns:
+    {
+        "has_schedule": bool,
+        "intervals": list,
+        "matched_interval": tuple or None,
+        "delay_minutes": int,
+        "overtime_minutes": int,
+        "shift_code": str,
+        "status": str  # "A", "D", "U", or None if no schedule
+    }
+    """
+    intervals = get_multi_schedule_intervals(agent_id, target_date)
+    
+    if not intervals:
+        return {
+            "has_schedule": False,
+            "intervals": [],
+            "matched_interval": None,
+            "delay_minutes": 0,
+            "overtime_minutes": 0,
+            "shift_code": "",
+            "status": None
+        }
+    
+    if not actual_start_t:
+        # No check-in = unjustified
+        return {
+            "has_schedule": True,
+            "intervals": intervals,
+            "matched_interval": None,
+            "delay_minutes": 0,
+            "overtime_minutes": 0,
+            "shift_code": intervals[0][2] if intervals else "",
+            "status": "U"
+        }
+    
+    # Find the best matching interval for this check-in
+    matched, delay_minutes = find_best_matching_interval(actual_start_t, intervals)
+    
+    # Calculate overtime if we have actual end time
+    overtime_minutes = 0
+    if matched and actual_end_t:
+        _, exp_end, _, _ = matched
+        act_end_dt = datetime.combine(target_date, actual_end_t)
+        if act_end_dt > exp_end:
+            overtime_minutes = int((act_end_dt - exp_end).total_seconds() // 60)
+    
+    # Determine status
+    status = "A" if delay_minutes <= TOLERANCE_MINUTES else "D"
+    if delay_minutes <= TOLERANCE_MINUTES:
+        delay_minutes = 0  # Apply tolerance
+    
+    return {
+        "has_schedule": True,
+        "intervals": intervals,
+        "matched_interval": matched,
+        "delay_minutes": delay_minutes,
+        "overtime_minutes": overtime_minutes,
+        "shift_code": matched[2] if matched else "",
+        "status": status
+    }
 
 def actual_interval_for_day(actual_row: Optional[pd.Series], day: date, is_night: bool) -> Optional[Tuple[datetime, datetime]]:
     """

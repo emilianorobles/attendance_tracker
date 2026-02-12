@@ -5,9 +5,12 @@ from io import BytesIO
 from typing import Dict, Tuple, Any, List
 import pandas as pd
 
-from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, compute_day_status, get_schedule_for_day
-from ..database import get_justifications_map, upsert_justification, delete_justification
-from ..models.schemas import JustifyBody
+from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, compute_day_status, get_schedule_for_day, get_valid_agent_ids
+from ..database import (
+    get_justifications_map, upsert_justification, delete_justification,
+    save_schedule_override, get_all_schedule_overrides, get_unique_shifts
+)
+from ..models.schemas import JustifyBody, ScheduleOverrideBody
 
 router = APIRouter()
 
@@ -37,8 +40,9 @@ def post_justify(body: JustifyBody):
         day = datetime.fromisoformat(body.date).date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    if body.agent_id not in VALID_AGENT_IDS:
-        raise HTTPException(status_code=404, detail="agent_id not found in schedule.csv")
+    valid_ids = get_valid_agent_ids()
+    if body.agent_id not in valid_ids:
+        raise HTTPException(status_code=404, detail="agent_id not found in roster")
     upsert_justification(body.agent_id, day, body.type, body.note or "", body.lead or "")
     return {"ok": True, "message": "Justification saved"}
 
@@ -48,8 +52,9 @@ def delete_justify(agent_id: str = Query(...), date: str = Query(..., descriptio
         day = datetime.fromisoformat(date).date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
-    if agent_id not in VALID_AGENT_IDS:
-        raise HTTPException(status_code=404, detail="agent_id not found in schedule.csv")
+    valid_ids = get_valid_agent_ids()
+    if agent_id not in valid_ids:
+        raise HTTPException(status_code=404, detail="agent_id not found in roster")
     delete_justification(agent_id, day)
     return {"ok": True, "message": "Justification removed"}
 
@@ -57,7 +62,11 @@ def delete_justify(agent_id: str = Query(...), date: str = Query(..., descriptio
 @router.get("/schedules")
 def get_schedules(lead: str = Query(None)):
     """Get all agent schedules with their work days, days off, and expected times."""
-    sched = SCHEDULE_DF.copy()
+    from ..shift_db import get_all_roster_agent_ids
+    
+    # Filter out deleted agents
+    roster_agent_ids = get_all_roster_agent_ids()
+    sched = SCHEDULE_DF[SCHEDULE_DF["agent_id"].isin(roster_agent_ids)].copy()
     
     if lead:
         sched = sched[sched["lead"].str.lower() == lead.strip().lower()]
@@ -249,7 +258,7 @@ def export_excel(
         headers=headers
     )
 
-@router.get("/schedules")
+@router.get("/schedules/all")
 def get_schedules():
     """Return all schedules from schedule.csv"""
     schedules = []
@@ -302,3 +311,103 @@ def justifications_report():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers
     )
+
+
+# ============ Schedule Override Endpoints ============
+
+@router.get("/schedule-overrides")
+def get_schedule_overrides_list():
+    """Get all schedule overrides (for viewing history)."""
+    overrides = get_all_schedule_overrides()
+    return {"overrides": overrides, "total": len(overrides)}
+
+
+@router.get("/shifts")
+def get_shifts():
+    """Get all unique shift names."""
+    shifts = get_unique_shifts()
+    return {"shifts": shifts}
+
+
+@router.post("/schedule-overrides")
+def create_schedule_override(body: ScheduleOverrideBody):
+    """
+    Create schedule overrides for one or more agents.
+    This is append-only - existing data is never modified.
+    """
+    # Validate lead is provided
+    if not body.lead or not body.lead.strip():
+        raise HTTPException(status_code=400, detail="Lead name is required")
+    
+    # Validate agent_ids
+    if not body.agent_ids or len(body.agent_ids) == 0:
+        raise HTTPException(status_code=400, detail="At least one agent must be selected")
+    
+    # Validate date format
+    try:
+        effective_date = datetime.fromisoformat(body.effective_date).date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format (use YYYY-MM-DD)")
+    
+    # Validate weekly pattern
+    wp = body.weekly_pattern
+    days = [
+        ("mon", wp.mon_enabled, wp.mon_start, wp.mon_end),
+        ("tue", wp.tue_enabled, wp.tue_start, wp.tue_end),
+        ("wed", wp.wed_enabled, wp.wed_start, wp.wed_end),
+        ("thu", wp.thu_enabled, wp.thu_start, wp.thu_end),
+        ("fri", wp.fri_enabled, wp.fri_start, wp.fri_end),
+        ("sat", wp.sat_enabled, wp.sat_start, wp.sat_end),
+        ("sun", wp.sun_enabled, wp.sun_start, wp.sun_end),
+    ]
+    
+    has_working_day = False
+    for day_name, enabled, start, end in days:
+        if enabled:
+            has_working_day = True
+            if not start or not end:
+                raise HTTPException(status_code=400, detail=f"Start and end times are required for {day_name}")
+            if start >= end:
+                raise HTTPException(status_code=400, detail=f"End time must be after start time for {day_name}")
+    
+    if not has_working_day:
+        raise HTTPException(status_code=400, detail="At least one day must be working (not a day off)")
+    
+    # Always use new_schedule scope
+    
+    # Build working_days and days_off from weekly pattern
+    working_days = []
+    days_off = []
+    day_times = {}
+    
+    for day_name, enabled, start, end in days:
+        if enabled:
+            working_days.append(day_name.capitalize())
+            if start and end:
+                day_times[day_name] = (start, end)
+        else:
+            days_off.append(day_name.capitalize())
+    
+    # For simplicity, use the first enabled day's times as expected_start/end
+    # In a more complex implementation, you might store per-day times
+    first_times = next(iter(day_times.values()), (None, None)) if day_times else (None, None)
+    
+    created_ids = save_schedule_override(
+        agent_ids=body.agent_ids,
+        override_type="new_schedule",
+        effective_date=body.effective_date,
+        end_date=None,  # Open-ended
+        shift=None,  # No base shift
+        working_days=", ".join(working_days) if working_days else None,
+        days_off=", ".join(days_off) if days_off else None,
+        expected_start=first_times[0],
+        expected_end=first_times[1],
+        note=body.note or "",
+        lead=body.lead.strip()
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Schedule override created for {len(body.agent_ids)} agent(s)",
+        "created_ids": created_ids
+    }

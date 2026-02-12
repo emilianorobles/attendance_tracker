@@ -435,6 +435,25 @@ def get_all_agents() -> List[Dict[str, Any]]:
     return [{"agent_id": r[0], "full_name": r[1], "lead": r[2]} for r in rows]
 
 
+def get_all_roster_agent_ids() -> set:
+    """Get set of all agent IDs currently in the roster table."""
+    if USE_POSTGRES:
+        con = _get_pg_connection()
+        cur = con.cursor()
+        cur.execute("SELECT agent_id FROM agent_roster")
+        rows = cur.fetchall()
+        cur.close()
+        con.close()
+    else:
+        con = _get_sqlite_connection()
+        cur = con.cursor()
+        cur.execute("SELECT agent_id FROM agent_roster")
+        rows = cur.fetchall()
+        con.close()
+    
+    return {r[0] for r in rows}
+
+
 def get_agent_status_on_date(agent_id: str, target_date: date) -> str:
     """Get agent's status (Active/Inactive) on a specific date. Returns 'Active' if no status record exists."""
     if USE_POSTGRES:
