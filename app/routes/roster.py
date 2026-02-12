@@ -3,9 +3,11 @@ API Routes for Shift Roster Management.
 Provides endpoints for the roster matrix UI with effective dating.
 """
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date, datetime, timedelta
+from io import BytesIO
 
 from ..shift_db import (
     init_shift_tables,
@@ -447,3 +449,72 @@ async def update_roster_agent_lead(request: UpdateLeadRequest):
             raise HTTPException(status_code=404, detail=f"Agent {request.agent_id} not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export.xlsx")
+async def export_schedules_excel(
+    week_start: str = Query(..., description="Monday of the week YYYY-MM-DD"),
+    lead: Optional[str] = Query(None, description="Filter by lead"),
+):
+    """
+    Export the roster schedules to an Excel file.
+    Returns all agents with their shifts for each day of the week.
+    """
+    import pandas as pd
+    
+    try:
+        start = date.fromisoformat(week_start)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    
+    # Get roster matrix data
+    matrix = get_roster_matrix(start, lead, None, "active")
+    
+    DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    week_dates = matrix.get("week_dates", {})
+    
+    # Build data for Excel
+    data = []
+    for agent in matrix.get("agents", []):
+        row = {
+            "Agent ID": agent["agent_id"],
+            "Name": agent["full_name"],
+            "Lead": agent.get("lead", ""),
+        }
+        
+        for day in DAYS:
+            day_data = agent.get("days", {}).get(day, {})
+            shift_code = day_data.get("shift_code", "")
+            row[f"{day} ({week_dates.get(day, '')})"] = shift_code
+        
+        data.append(row)
+    
+    # Create DataFrame
+    df = pd.DataFrame(data)
+    
+    # Create Excel file
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Schedules")
+        
+        # Auto-adjust column widths
+        worksheet = writer.sheets["Schedules"]
+        for idx, col in enumerate(df.columns):
+            max_length = max(
+                df[col].astype(str).map(len).max() if len(df) > 0 else 0,
+                len(str(col))
+            ) + 2
+            worksheet.column_dimensions[chr(65 + idx)].width = min(max_length, 25)
+    
+    buf.seek(0)
+    
+    filename = f"schedules_{week_start}.xlsx"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+    
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )

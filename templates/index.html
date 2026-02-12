@@ -380,6 +380,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
       <h3 style="margin: 0;">📋 Service Desk Technician Schedules</h3>
       <div style="display: flex; gap: 8px;">
+        <button class="btn" id="btnExportSchedules" title="Download schedules as Excel">📥 Export Excel</button>
         <button class="btn" id="btnManageShifts" title="Manage shift templates">⚙️ Manage Shifts</button>
         <button class="btn" id="btnAddAgent" title="Add new agent to roster">➕ Add Agent</button>
         <button class="btn accent" id="schedulesViewClose">Close</button>
@@ -1661,6 +1662,16 @@
     
     // Close modal
     schedulesViewClose.addEventListener('click', () => schedulesViewModal.close());
+    
+    // Export to Excel
+    document.getElementById('btnExportSchedules').addEventListener('click', () => {
+      const leadFilter = document.getElementById('rosterLeadFilter').value;
+      let url = `/api/roster/export.xlsx?week_start=${formatDate(currentWeekStart)}`;
+      if (leadFilter) {
+        url += `&lead=${encodeURIComponent(leadFilter)}`;
+      }
+      window.location.href = url;
+    });
     
     // Expose for global access
     window.loadRosterMatrix = loadRosterMatrix;
