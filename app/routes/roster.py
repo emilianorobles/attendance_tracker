@@ -13,7 +13,6 @@ from ..shift_db import (
     get_all_shift_templates,
     add_agent_to_roster,
     remove_agent_from_roster,
-    reactivate_agent,
     get_active_agents_on_date,
     get_all_roster_agents,
     get_shift_for_agent_day,
@@ -368,8 +367,9 @@ async def add_agent(request: AddAgentRequest):
 @router.post("/agents/remove")
 async def remove_agent(request: RemoveAgentRequest):
     """
-    Remove an agent from the roster by setting their effective end date.
-    Does NOT delete history - agent will no longer appear after effective_date.
+    Permanently delete an agent from the roster.
+    Removes all history including shift assignments and status records.
+    This action cannot be undone.
     """
     if not request.agent_id:
         raise HTTPException(status_code=400, detail="agent_id is required")
@@ -383,13 +383,13 @@ async def remove_agent(request: RemoveAgentRequest):
     
     if success:
         return {
-            "status": "removed",
-            "message": f"Agent {request.agent_id} removed from roster effective {eff_date}"
+            "status": "deleted",
+            "message": f"Agent {request.agent_id} permanently deleted from roster"
         }
     else:
         raise HTTPException(
             status_code=404,
-            detail=f"No active roster entry found for agent {request.agent_id}"
+            detail=f"Agent {request.agent_id} not found"
         )
 
 
@@ -422,27 +422,6 @@ async def sync_csv_agents():
         return {"status": "success", "message": f"Synced {len(agents)} agents from CSV", "total_agents": len(agents)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/agents/reactivate")
-async def reactivate_roster_agent(request: RemoveAgentRequest):
-    """
-    Reactivate a previously removed agent.
-    """
-    if not request.agent_id:
-        raise HTTPException(status_code=400, detail="agent_id is required")
-    
-    try:
-        eff_date = date.fromisoformat(request.effective_date)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid effective_date format: {e}")
-    
-    success = reactivate_agent(request.agent_id, eff_date)
-    
-    if success:
-        return {"status": "reactivated", "message": f"Agent {request.agent_id} reactivated effective {eff_date}"}
-    else:
-        raise HTTPException(status_code=404, detail=f"Agent {request.agent_id} not found")
 
 
 @router.post("/agents/update-lead")

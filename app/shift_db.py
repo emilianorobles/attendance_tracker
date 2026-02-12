@@ -508,49 +508,36 @@ def update_agent_lead(agent_id: str, new_lead: str, effective_date: date) -> boo
 
 
 def remove_agent_from_roster(agent_id: str, effective_date: date) -> bool:
-    """Remove an agent by creating an 'Inactive' status record. Does NOT delete historical data."""
-    ts = datetime.now().isoformat(timespec="seconds")
+    """Permanently delete an agent and all their data from the roster.
     
+    This removes:
+    - Agent from agent_roster table
+    - All status records from agent_roster_status
+    - All shift assignments from agent_shift_assignments
+    
+    The agent will completely disappear from the roster starting from the effective date.
+    """
     if USE_POSTGRES:
         con = _get_pg_connection()
         cur = con.cursor()
-        prev_end = effective_date - timedelta(days=1)
-        cur.execute("""UPDATE agent_roster_status SET effective_end = %s WHERE agent_id = %s AND effective_end IS NULL AND status = 'Active'""", (prev_end.isoformat(), agent_id))
-        cur.execute("""INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (%s, 'Inactive', %s, %s)""", (agent_id, effective_date.isoformat(), ts))
+        # Delete shift assignments for this agent
+        cur.execute("DELETE FROM agent_shift_assignments WHERE agent_id = %s", (agent_id,))
+        # Delete status records for this agent
+        cur.execute("DELETE FROM agent_roster_status WHERE agent_id = %s", (agent_id,))
+        # Delete from roster
+        cur.execute("DELETE FROM agent_roster WHERE agent_id = %s", (agent_id,))
         con.commit()
         cur.close()
         con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
-        prev_end = effective_date - timedelta(days=1)
-        cur.execute("UPDATE agent_roster_status SET effective_end = ? WHERE agent_id = ? AND effective_end IS NULL AND status = 'Active'", (prev_end.isoformat(), agent_id))
-        cur.execute("INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (?, 'Inactive', ?, ?)", (agent_id, effective_date.isoformat(), ts))
-        con.commit()
-        con.close()
-        sync_db_to_r2()
-    return True
-
-
-def reactivate_agent(agent_id: str, effective_date: date) -> bool:
-    """Reactivate an inactive agent."""
-    ts = datetime.now().isoformat(timespec="seconds")
-    
-    if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        prev_end = effective_date - timedelta(days=1)
-        cur.execute("UPDATE agent_roster_status SET effective_end = %s WHERE agent_id = %s AND effective_end IS NULL", (prev_end.isoformat(), agent_id))
-        cur.execute("INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (%s, 'Active', %s, %s)", (agent_id, effective_date.isoformat(), ts))
-        con.commit()
-        cur.close()
-        con.close()
-    else:
-        con = _get_sqlite_connection()
-        cur = con.cursor()
-        prev_end = effective_date - timedelta(days=1)
-        cur.execute("UPDATE agent_roster_status SET effective_end = ? WHERE agent_id = ? AND effective_end IS NULL", (prev_end.isoformat(), agent_id))
-        cur.execute("INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (?, 'Active', ?, ?)", (agent_id, effective_date.isoformat(), ts))
+        # Delete shift assignments for this agent
+        cur.execute("DELETE FROM agent_shift_assignments WHERE agent_id = ?", (agent_id,))
+        # Delete status records for this agent
+        cur.execute("DELETE FROM agent_roster_status WHERE agent_id = ?", (agent_id,))
+        # Delete from roster
+        cur.execute("DELETE FROM agent_roster WHERE agent_id = ?", (agent_id,))
         con.commit()
         con.close()
         sync_db_to_r2()

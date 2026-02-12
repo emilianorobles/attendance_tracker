@@ -558,9 +558,9 @@
 <!-- Remove Agent Modal -->
 <dialog id="removeAgentModal">
   <div class="modal" style="min-width: 350px;">
-    <h3>🚫 Remove Agent from Roster</h3>
+    <h3>�️ Delete Agent Permanently</h3>
     <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
-      Set an end date for this agent. History will be preserved.
+      This will permanently delete the agent and all their history.
     </p>
     
     <div class="row">
@@ -568,18 +568,18 @@
       <input id="removeAgentName" readonly />
     </div>
     <div class="row">
-      <label>Last Active Date</label>
-      <input id="removeAgentEffectiveDate" type="date" title="Agent will not appear in roster after this date" />
+      <label>Effective Date</label>
+      <input id="removeAgentEffectiveDate" type="date" title="Agent will be deleted effective this date" />
     </div>
-    <div style="font-size: 11px; color: var(--muted); margin: 4px 0 8px 0;">
-      ⚠️ This does not delete history. Agent can be reactivated later.
+    <div style="font-size: 11px; color: var(--unjust); margin: 4px 0 8px 0; font-weight: 500;">
+      ⚠️ This action cannot be undone. All data will be permanently deleted.
     </div>
     
     <div id="removeAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
     
     <footer>
       <button class="btn" id="removeAgentCancel">Cancel</button>
-      <button class="btn" id="removeAgentSave" style="background: var(--unjust); border-color: var(--unjust);">Remove</button>
+      <button class="btn" id="removeAgentSave" style="background: var(--unjust); border-color: var(--unjust);">Delete Permanently</button>
     </footer>
   </div>
 </dialog>
@@ -1574,14 +1574,9 @@
               <span style="padding: 2px 6px; background: var(--bg); border-radius: 4px; font-size: 11px;">${agent.lead || '—'}</span>
             </td>
             <td style="padding: 4px;">
-              ${isInactive ? 
-                `<button class="btn" style="padding: 3px 6px; font-size: 10px; background: var(--ok);" 
-                        onclick="reactivateAgent('${agent.agent_id}', '${agent.full_name}')"
-                        title="Reactivate agent">✅</button>` :
-                `<button class="btn" style="padding: 3px 6px; font-size: 10px; color: var(--unjust);" 
-                        onclick="openRemoveAgentModal('${agent.agent_id}', '${agent.full_name}')"
-                        title="Remove agent from roster">🗑️</button>`
-              }
+              <button class="btn" style="padding: 3px 6px; font-size: 10px; color: var(--unjust);" 
+                      onclick="openRemoveAgentModal('${agent.agent_id}', '${agent.full_name}')"
+                      title="Delete agent permanently">🗑️</button>
             </td>
           </tr>
         `;
@@ -2029,7 +2024,12 @@
         return;
       }
       
-      statusEl.textContent = '⏳ Removing agent...';
+      // Confirm permanent deletion
+      if (!confirm('⚠️ Are you sure? This will permanently delete the agent and ALL their history. This action cannot be undone.')) {
+        return;
+      }
+      
+      statusEl.textContent = '⏳ Deleting agent permanently...';
       statusEl.style.color = 'var(--muted)';
       
       try {
@@ -2044,10 +2044,10 @@
         
         const data = await res.json();
         if (!res.ok) {
-          throw new Error(data.detail || 'Failed to remove agent');
+          throw new Error(data.detail || 'Failed to delete agent');
         }
         
-        statusEl.textContent = `✅ Agent removed from roster`;
+        statusEl.textContent = `✅ Agent permanently deleted`;
         statusEl.style.color = 'var(--ok)';
         
         setTimeout(() => {
@@ -2061,34 +2061,6 @@
       }
     });
   })();
-
-  // === Reactivate Agent Function ===
-  window.reactivateAgent = async function(agentId, agentName) {
-    if (!confirm(`Reactivate agent ${agentName} (${agentId})?`)) return;
-    
-    const effectiveDate = window.formatDate(new Date());
-    
-    try {
-      const res = await fetch('/api/roster/agents/reactivate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_id: agentId,
-          effective_date: effectiveDate
-        })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to reactivate agent');
-      }
-      
-      alert(`✅ Agent ${agentName} has been reactivated.`);
-      window.loadRosterMatrix();
-    } catch (err) {
-      alert(`❌ Error: ${err.message}`);
-    }
-  };
 
   // === Manage Shift Templates Modal ===
   (function() {
