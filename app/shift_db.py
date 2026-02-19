@@ -355,7 +355,10 @@ def sync_agents_from_csv():
     """Sync agents from schedule.csv to agent_roster table and create shift assignments."""
     csv_agents = load_all_agents_from_csv()
     ts = datetime.now().isoformat(timespec="seconds")
-    effective_date = date.today()
+    # Use the first day of the current year as effective date so all historical and future dates work
+    # This ensures shifts are effective for the entire year
+    today = date.today()
+    effective_date = date(today.year, 1, 1)
     all_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     
     if USE_POSTGRES:

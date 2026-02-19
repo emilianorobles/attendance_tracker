@@ -407,34 +407,31 @@ def get_justifications_map(start: date, end: date) -> Dict[Tuple[str, date], Dic
 
 
 def get_all_agents_and_leads() -> Tuple[List[str], List[Dict[str, str]]]:
-    """Get all unique leads and agents from all schedule versions and the base CSV.
+    """Get all unique leads and agents from roster and schedule versions.
     Filters out agents that have been deleted from the roster.
+    Uses database instead of CSV.
     """
-    from .logic import load_schedule  # Import here to avoid circular import
-    from .shift_db import get_all_roster_agent_ids  # Get current roster agents
+    from .shift_db import get_all_roster_agent_ids, get_all_roster_agents  # Get agents from BD
     
     leads = set()
     agents = {}  # agent_id -> {"id": agent_id, "name": name}
     
-    # Get set of agent IDs that still exist in the roster
-    roster_agent_ids = get_all_roster_agent_ids()
+    # Get all agents from roster (replaces old CSV-based approach)
+    all_roster_agents = get_all_roster_agents()
+    for agent in all_roster_agents:
+        agent_id = str(agent["agent_id"])
+        leads.add(agent.get("lead", ""))
+        agents[agent_id] = {"id": agent_id, "name": agent.get("full_name", "")}
     
-    # Add from base CSV schedule (only if agent still in roster)
-    base_sched = load_schedule()
-    for _, row in base_sched.iterrows():
-        agent_id = str(row["agent_id"])
-        if agent_id in roster_agent_ids:
-            leads.add(str(row["lead"]))
-            agents[agent_id] = {"id": agent_id, "name": str(row["name"])}
-    
-    # Add from all schedule versions (only if agent still in roster)
+    # Add from all schedule versions (as before)
     versions = get_all_schedule_versions()
     for version in versions:
         entries = get_schedule_entries_for_version(version["id"])
         for entry in entries:
-            if entry["agent_id"] in roster_agent_ids:
+            agent_id = entry["agent_id"]
+            if agent_id not in agents:
                 leads.add(entry["lead"])
-                agents[entry["agent_id"]] = {"id": entry["agent_id"], "name": entry["name"]}
+                agents[agent_id] = {"id": agent_id, "name": entry["name"]}
     
     return sorted(list(leads)), list(agents.values())
 

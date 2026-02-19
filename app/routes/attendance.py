@@ -5,7 +5,9 @@ from io import BytesIO
 from typing import Dict, Tuple, Any, List
 import pandas as pd
 
-from ..logic import build_attendance, get_actuals_df, SCHEDULE_DF, VALID_AGENT_IDS, expected_interval_for_day, compute_day_status, get_schedule_for_day, get_valid_agent_ids
+from ..logic import build_attendance, get_actuals_df, expected_interval_for_day, compute_day_status, get_schedule_for_day, get_valid_agent_ids
+from ..providers.schedule_provider import ScheduleProvider
+from ..shift_db import get_all_roster_agents
 from ..database import (
     get_justifications_map, upsert_justification, delete_justification,
     save_schedule_override, get_all_schedule_overrides, get_unique_shifts
@@ -62,29 +64,31 @@ def delete_justify(agent_id: str = Query(...), date: str = Query(..., descriptio
 @router.get("/schedules")
 def get_schedules(lead: str = Query(None)):
     """Get all agent schedules with their work days, days off, and expected times."""
-    from ..shift_db import get_all_roster_agent_ids
+    from datetime import datetime
     
-    # Filter out deleted agents
-    roster_agent_ids = get_all_roster_agent_ids()
-    sched = SCHEDULE_DF[SCHEDULE_DF["agent_id"].isin(roster_agent_ids)].copy()
+    # Get all roster agents (from the same source as /api/roster)
+    agents_data = get_all_roster_agents()
     
+    # Filter by lead if provided
     if lead:
-        sched = sched[sched["lead"].str.lower() == lead.strip().lower()]
+        lead_lower = lead.strip().lower()
+        agents_data = [a for a in agents_data if str(a.get("lead", "")).lower() == lead_lower]
     
     # Sort by lead, then by name
-    sched = sched.sort_values(["lead", "name"])
+    agents_data.sort(key=lambda a: (a.get("lead", ""), a.get("full_name", "")))
     
     agents = []
-    for _, row in sched.iterrows():
+    for agent in agents_data:
+        agent_id = agent["agent_id"]
         agents.append({
-            "agent_id": str(row["agent_id"]),
-            "name": str(row["name"]),
-            "lead": str(row["lead"]),
-            "shift": str(row["Shift"]),
-            "working_days": str(row["working_days"]),
-            "days_off": str(row["days_off"]),
-            "expected_start": str(row["expected_start"]),
-            "expected_end": str(row["expected_end"]),
+            "agent_id": agent_id,
+            "name": agent.get("full_name", ""),
+            "lead": agent.get("lead", ""),
+            "shift": "(from roster)",  # Placeholder - shift varies by day
+            "working_days": "",  # Can vary by day in new system
+            "days_off": "",     # Can vary by day in new system
+            "expected_start": "",  # Can vary by day
+            "expected_end": "",    # Can vary by day
         })
     
     return {"agents": agents, "total": len(agents)}
@@ -259,17 +263,19 @@ def export_excel(
     )
 
 @router.get("/schedules/all")
-def get_schedules():
-    """Return all schedules from schedule.csv"""
+def get_schedules_all():
+    """Return all schedules from the roster database (same source as /api/roster)"""
+    agents_data = get_all_roster_agents()
+    
     schedules = []
-    for _, row in SCHEDULE_DF.iterrows():
+    for agent in agents_data:
         schedules.append({
-            "agent_id": str(row["agent_id"]),
-            "name": str(row["name"]),
-            "lead": str(row["lead"]),
-            "expected_start": str(row["expected_start"]),
-            "expected_end": str(row["expected_end"]),
-            "shift": str(row.get("Shift", "")),
+            "agent_id": agent["agent_id"],
+            "name": agent.get("full_name", ""),
+            "lead": agent.get("lead", ""),
+            "expected_start": "",  # Varies by day of week
+            "expected_end": "",    # Varies by day of week
+            "shift": "(per day)",
         })
     return {"schedules": schedules}
 
@@ -284,8 +290,9 @@ def justifications_report():
     rows = cur.fetchall()
     con.close()
 
-    # Nombres de agentes desde schedule.csv
-    agent_names = {str(r["agent_id"]): str(r["name"]) for _, r in SCHEDULE_DF.iterrows()}
+    # Nombres de agentes desde el roster
+    agents_data = get_all_roster_agents()
+    agent_names = {str(a["agent_id"]): str(a.get("full_name", "")) for a in agents_data}
 
     data = []
     for agent_id, date_str, typ, note, lead, created_at in rows:

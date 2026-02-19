@@ -9,33 +9,10 @@ from .database import (
     get_justifications_map, get_schedule_for_date, get_single_day_override_db, 
     get_new_schedule_override, get_agent_schedules, get_agent
 )
+from .providers.schedule_provider import ScheduleProvider
 
-CSV_SCHEDULE = "schedule.csv"
 CSV_ACTUALS = "actuals.csv"
 TOLERANCE_MINUTES = 2
-
-def load_schedule() -> pd.DataFrame:
-    """
-    schedule.csv:
-      agent_id, Shift, name, lead, working_days, days_off, expected_start, expected_end
-    """
-    df = pd.read_csv(CSV_SCHEDULE)
-    return _process_schedule_df(df)
-
-
-def _process_schedule_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Process a schedule DataFrame, adding computed columns."""
-    df = df.copy()
-    df["agent_id"] = df["agent_id"].astype(str).str.strip()
-    df["Shift"] = df["Shift"].astype(str).str.strip()
-    df["name"] = df["name"].astype(str).str.strip()
-    df["lead"] = df["lead"].astype(str).str.strip()
-    df["working_days"] = df["working_days"].astype(str).str.strip()
-    df["days_off"] = df["days_off"].astype(str).str.strip()
-    df["expected_start_t"] = df["expected_start"].apply(parse_hhmm_or_hhmmss)
-    df["expected_end_t"] = df["expected_end"].apply(parse_hhmm_or_hhmmss)
-    df["is_night"] = df["Shift"].str.lower().eq("night")
-    return df
 
 
 def _select_agent_row_for_day(agent_rows: pd.DataFrame, day: date) -> Optional[pd.Series]:
@@ -57,25 +34,10 @@ def _select_agent_row_for_day(agent_rows: pd.DataFrame, day: date) -> Optional[p
 def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     """
     Get the schedule that was effective on target_date.
-    First checks the database for versioned schedules, then falls back to CSV.
-    Filters out agents that have been deleted from the roster.
+    Uses the new ScheduleProvider which reads from agent_shift_assignments in the database.
+    This ensures attendance uses the exact same schedule data as "View Schedules" UI.
     """
-    from .shift_db import get_all_roster_agent_ids
-    
-    # Get set of agent IDs that still exist in the roster
-    roster_agent_ids = get_all_roster_agent_ids()
-    
-    # Try to get versioned schedule from database
-    db_schedule = get_schedule_for_date(target_date)
-    if db_schedule is not None and not db_schedule.empty:
-        df = _process_schedule_df(db_schedule)
-        # Filter out deleted agents
-        df = df[df["agent_id"].isin(roster_agent_ids)]
-        return df
-    
-    # Fall back to CSV file (for dates before any versioned schedule)
-    # Filter out deleted agents
-    return SCHEDULE_DF[SCHEDULE_DF["agent_id"].isin(roster_agent_ids)]
+    return ScheduleProvider.get_schedule_for_date(target_date)
 
 
 def get_effective_schedule_for_agent(agent_id: str, target_date: date, base_row: pd.Series) -> pd.Series:
@@ -104,6 +66,9 @@ def get_effective_schedule_for_agent(agent_id: str, target_date: date, base_row:
         if single_day.get("shift"):
             effective["Shift"] = single_day["shift"]
             effective["is_night"] = str(single_day["shift"]).lower() == "night"
+        # Preserve shift_code from base row if not overridden
+        if "shift_code" not in effective and "shift_code" in base_row:
+            effective["shift_code"] = base_row["shift_code"]
         return effective
     
     # Check for new schedule override (applies from effective_date onwards)
@@ -123,6 +88,9 @@ def get_effective_schedule_for_agent(agent_id: str, target_date: date, base_row:
         if new_sched.get("shift"):
             effective["Shift"] = new_sched["shift"]
             effective["is_night"] = str(new_sched["shift"]).lower() == "night"
+        # Preserve shift_code from base row if not overridden
+        if "shift_code" not in effective and "shift_code" in base_row:
+            effective["shift_code"] = base_row["shift_code"]
     
     return effective
 
@@ -141,10 +109,6 @@ def load_actuals() -> pd.DataFrame:
     df["actual_start_t"] = df["actual_start"].apply(parse_hhmm_or_hhmmss)
     df["actual_end_t"] = df["actual_end"].apply(parse_hhmm_or_hhmmss)
     return df
-
-SCHEDULE_DF = load_schedule()
-VALID_AGENT_IDS = set(SCHEDULE_DF["agent_id"].tolist())
-
 
 def get_valid_agent_ids() -> set:
     """Get set of valid agent IDs that still exist in the roster."""
@@ -287,7 +251,7 @@ def compute_day_status(
     """
     Calcula estado del día y aplica override.
       - '-' (pending) si el día es futuro (no ha pasado aún).
-      - Off 'O' si weekday ∈ days_off.
+      - Off 'O' si shift es OFF o no hay expected_start/expected_end.
       - U si no hay registro en día laborable.
       - A si late_minutes == 0; D si > 0.
       - Tolerancia: si late_minutes <= TOLERANCE_MINUTES ⇒ A y late=0.
@@ -297,7 +261,7 @@ def compute_day_status(
       - is_overridden (True si hubo justificación/override)
     
     Note: This function now applies schedule overrides (from Edit Schedules feature)
-    before computing the status.
+    before computing the status. OFF days are determined by shift_code="OFF" or missing times.
     """
     agent_id = agent_row["agent_id"]
     
@@ -306,9 +270,8 @@ def compute_day_status(
     
     name = effective_row["name"]
     lead = effective_row["lead"]
-    shift = effective_row["Shift"]
-    days_off = set(parse_days_list(effective_row["days_off"]))
-    dow = weekday_token(day)
+    shift = effective_row.get("Shift", "")
+    shift_code = effective_row.get("shift_code", "")
     
     today = date.today()
     
@@ -325,37 +288,36 @@ def compute_day_status(
         original_status = "-"
     # Base (estado original)
     elif day <= today:
-        if dow in days_off:
+        # Check if it's OFF day based on shift_code or missing times
+        exp_iv = expected_interval_for_day(effective_row, day)
+        
+        if shift_code == "OFF" or exp_iv is None:
+            # OFF day - no schedule expected
             original_status = "O"
         else:
-            exp_iv = expected_interval_for_day(effective_row, day)
-            if exp_iv is None:
-                original_status = "O"
+            # Working day with expected schedule
+            exp_start, exp_end, is_night = exp_iv
+            planned_start = exp_start.strftime("%H:%M")
+            planned_end = exp_end.strftime("%H:%M")
+            act_iv = actual_interval_for_day(actual_row, day, is_night)
+            if act_iv is None:
+                original_status = "U"
             else:
-                exp_start, exp_end, is_night = exp_iv
-                planned_start = exp_start.strftime("%H:%M")
-                planned_end = exp_end.strftime("%H:%M")
-                act_iv = actual_interval_for_day(actual_row, day, is_night)
-                if act_iv is not None:
-                    act_start, act_end = act_iv
-                    actual_start = act_start.strftime("%H:%M")
-                    actual_end = act_end.strftime("%H:%M")
-                if act_iv is None:
-                    original_status = "U"
+                act_start, act_end = act_iv
+                actual_start = act_start.strftime("%H:%M")
+                actual_end = act_end.strftime("%H:%M")
+                atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
+                salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
+                late_raw = atraso_entrada + salida_anticipada
+                overtime_minutes = max(0, int((exp_start - act_start).total_seconds() // 60)) + \
+                                   max(0, int((act_end - exp_end).total_seconds() // 60))
+                # ✔ tolerancia de 2 minutos
+                if late_raw <= TOLERANCE_MINUTES:
+                    late_minutes = 0
+                    original_status = "A"
                 else:
-                    act_start, act_end = act_iv
-                    atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
-                    salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
-                    late_raw = atraso_entrada + salida_anticipada
-                    overtime_minutes = max(0, int((exp_start - act_start).total_seconds() // 60)) + \
-                                       max(0, int((act_end - exp_end).total_seconds() // 60))
-                    # ✔ tolerancia de 2 minutos
-                    if late_raw <= TOLERANCE_MINUTES:
-                        late_minutes = 0
-                        original_status = "A"
-                    else:
-                        late_minutes = late_raw
-                        original_status = "D"
+                    late_minutes = late_raw
+                    original_status = "D"
 
     status = original_status
     is_overridden = False
@@ -428,7 +390,8 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
     # the earliest start and the latest end so we don't miss delays.
     actuals_idx: Dict[Tuple[str, date], pd.Series] = {}
     df_act_all = get_actuals_df()
-    df_act = df_act_all[df_act_all["agent_id"].isin(VALID_AGENT_IDS)].copy()
+    valid_agent_ids = get_valid_agent_ids()
+    df_act = df_act_all[df_act_all["agent_id"].isin(valid_agent_ids)].copy()
     if not df_act.empty:
         grp = df_act.groupby(["agent_id", "date"])
         for (aid, d), g in grp:
