@@ -35,7 +35,19 @@ if DATABASE_URL:
 
 def _get_pg_connection():
     """Get a Postgres connection."""
-    return psycopg2.connect(PG_DSN, sslmode="require")
+    if not psycopg2:
+        raise RuntimeError("psycopg2 not installed")
+    if not PG_DSN:
+        raise RuntimeError("DATABASE_URL not configured")
+    
+    # Handle both postgresql:// and postgres:// URL formats
+    dsn = PG_DSN.replace("postgresql://", "postgres://") if "postgresql://" in PG_DSN else PG_DSN
+    
+    try:
+        return psycopg2.connect(dsn, sslmode="require")
+    except Exception as e:
+        print(f"Failed to connect to PostgreSQL with DSN: {dsn[:50]}...")
+        raise
 
 
 def _get_sqlite_connection():
@@ -353,89 +365,97 @@ def parse_working_days(days_str: str) -> List[str]:
 
 def sync_agents_from_csv():
     """Sync agents from schedule.csv to agent_roster table and create shift assignments."""
-    csv_agents = load_all_agents_from_csv()
-    ts = datetime.now().isoformat(timespec="seconds")
-    # Use the first day of the current year as effective date so all historical and future dates work
-    # This ensures shifts are effective for the entire year
-    today = date.today()
-    effective_date = date(today.year, 1, 1)
-    all_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    
-    if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        for agent in csv_agents:
-            if not agent["agent_id"]:
-                continue
-            # Upsert agent roster
-            cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
-            
-            # Check if agent already has shift assignments
-            cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
-            if cur.fetchone()[0] > 0:
-                continue  # Skip if already has assignments
-            
-            # Map to shift code
-            shift_code = map_time_to_shift_code(agent["expected_start"], agent["expected_end"])
-            working_days = parse_working_days(agent["working_days"])
-            
-            # Create assignments for each day
-            for day in all_days:
-                day_shift = shift_code if day in working_days else 'OFF'
-                cur.execute("""INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
+    try:
+        csv_agents = load_all_agents_from_csv()
+        if not csv_agents:
+            print("No agents loaded from CSV")
+            return
         
-        con.commit()
-        cur.close()
-        con.close()
-    else:
-        con = _get_sqlite_connection()
-        cur = con.cursor()
-        for agent in csv_agents:
-            if not agent["agent_id"]:
-                continue
-            # Upsert agent roster
-            cur.execute("SELECT id FROM agent_roster WHERE agent_id = ?", (agent["agent_id"],))
-            existing = cur.fetchone()
-            if existing:
-                cur.execute("UPDATE agent_roster SET full_name = ?, lead = ? WHERE agent_id = ?", (agent["full_name"], agent["lead"], agent["agent_id"]))
-            else:
-                cur.execute("INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (?, ?, ?, ?)", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
-            
-            # Check if agent already has shift assignments
-            cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = ?", (agent["agent_id"],))
-            if cur.fetchone()[0] > 0:
-                continue  # Skip if already has assignments
-            
-            # Map to shift code
-            shift_code = map_time_to_shift_code(agent["expected_start"], agent["expected_end"])
-            working_days = parse_working_days(agent["working_days"])
-            
-            # Create assignments for each day
-            for day in all_days:
-                day_shift = shift_code if day in working_days else 'OFF'
-                cur.execute("INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
+        ts = datetime.now().isoformat(timespec="seconds")
+        today = date.today()
+        effective_date = date(today.year, 1, 1)
+        all_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         
-        con.commit()
-        con.close()
+        if USE_POSTGRES:
+            con = _get_pg_connection()
+            cur = con.cursor()
+            for agent in csv_agents:
+                try:
+                    if not agent["agent_id"]:
+                        continue
+                    cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
+                    cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
+                    if cur.fetchone()[0] > 0:
+                        continue
+                    
+                    shift_code = map_time_to_shift_code(agent["expected_start"], agent["expected_end"])
+                    working_days = parse_working_days(agent["working_days"])
+                    for day in all_days:
+                        day_shift = shift_code if day in working_days else 'OFF'
+                        cur.execute("""INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
+                except Exception as e:
+                    print(f"Error syncing agent {agent.get('agent_id')}: {e}")
+            
+            con.commit()
+            cur.close()
+            con.close()
+            print(f"Synced {len(csv_agents)} agents to PostgreSQL")
+        else:
+            con = _get_sqlite_connection()
+            cur = con.cursor()
+            for agent in csv_agents:
+                try:
+                    if not agent["agent_id"]:
+                        continue
+                    cur.execute("SELECT id FROM agent_roster WHERE agent_id = ?", (agent["agent_id"],))
+                    existing = cur.fetchone()
+                    if existing:
+                        cur.execute("UPDATE agent_roster SET full_name = ?, lead = ? WHERE agent_id = ?", (agent["full_name"], agent["lead"], agent["agent_id"]))
+                    else:
+                        cur.execute("INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (?, ?, ?, ?)", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
+                    
+                    cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = ?", (agent["agent_id"],))
+                    if cur.fetchone()[0] > 0:
+                        continue
+                    
+                    shift_code = map_time_to_shift_code(agent["expected_start"], agent["expected_end"])
+                    working_days = parse_working_days(agent["working_days"])
+                    for day in all_days:
+                        day_shift = shift_code if day in working_days else 'OFF'
+                        cur.execute("INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
+                except Exception as e:
+                    print(f"Error syncing agent {agent.get('agent_id')}: {e}")
+            
+            con.commit()
+            con.close()
+            print(f"Synced {len(csv_agents)} agents to SQLite")
+    except Exception as e:
+        print(f"Error in sync_agents_from_csv: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def get_all_agents() -> List[Dict[str, Any]]:
     """Get ALL agents from agent_roster table."""
-    if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
-    else:
-        con = _get_sqlite_connection()
-        cur = con.cursor()
-        cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
-        rows = cur.fetchall()
-        con.close()
-    
-    return [{"agent_id": r[0], "full_name": r[1], "lead": r[2]} for r in rows]
+    try:
+        if USE_POSTGRES:
+            con = _get_pg_connection()
+            cur = con.cursor()
+            cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+            rows = cur.fetchall()
+            cur.close()
+            con.close()
+        else:
+            con = _get_sqlite_connection()
+            cur = con.cursor()
+            cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+            rows = cur.fetchall()
+            con.close()
+        
+        return [{"agent_id": r[0], "full_name": r[1], "lead": r[2]} for r in rows]
+    except Exception as e:
+        print(f"Error fetching agents: {e}")
+        return []
 
 
 def get_all_roster_agent_ids() -> set:

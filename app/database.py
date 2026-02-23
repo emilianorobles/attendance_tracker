@@ -411,29 +411,42 @@ def get_all_agents_and_leads() -> Tuple[List[str], List[Dict[str, str]]]:
     Filters out agents that have been deleted from the roster.
     Uses database instead of CSV.
     """
-    from .shift_db import get_all_roster_agent_ids, get_all_roster_agents  # Get agents from BD
-    
-    leads = set()
-    agents = {}  # agent_id -> {"id": agent_id, "name": name}
-    
-    # Get all agents from roster (replaces old CSV-based approach)
-    all_roster_agents = get_all_roster_agents()
-    for agent in all_roster_agents:
-        agent_id = str(agent["agent_id"])
-        leads.add(agent.get("lead", ""))
-        agents[agent_id] = {"id": agent_id, "name": agent.get("full_name", "")}
-    
-    # Add from all schedule versions (as before)
-    versions = get_all_schedule_versions()
-    for version in versions:
-        entries = get_schedule_entries_for_version(version["id"])
-        for entry in entries:
-            agent_id = entry["agent_id"]
-            if agent_id not in agents:
-                leads.add(entry["lead"])
-                agents[agent_id] = {"id": agent_id, "name": entry["name"]}
-    
-    return sorted(list(leads)), list(agents.values())
+    try:
+        from .shift_db import get_all_roster_agent_ids, get_all_roster_agents  # Get agents from BD
+        
+        leads = set()
+        agents = {}  # agent_id -> {"id": agent_id, "name": name}
+        
+        # Get all agents from roster (replaces old CSV-based approach)
+        try:
+            all_roster_agents = get_all_roster_agents()
+            for agent in all_roster_agents:
+                agent_id = str(agent["agent_id"])
+                leads.add(agent.get("lead", ""))
+                agents[agent_id] = {"id": agent_id, "name": agent.get("full_name", "")}
+        except Exception as e:
+            print(f"Warning: Could not get roster agents: {e}")
+        
+        # Add from all schedule versions (as before)
+        try:
+            versions = get_all_schedule_versions()
+            for version in versions:
+                entries = get_schedule_entries_for_version(version["id"])
+                for entry in entries:
+                    agent_id = entry["agent_id"]
+                    if agent_id not in agents:
+                        leads.add(entry["lead"])
+                        agents[agent_id] = {"id": agent_id, "name": entry["name"]}
+        except Exception as e:
+            print(f"Warning: Could not get schedule versions: {e}")
+        
+        # Clean up empty leads
+        leads = {l for l in leads if l}
+        
+        return sorted(list(leads)), list(agents.values())
+    except Exception as e:
+        print(f"Error in get_all_agents_and_leads: {e}")
+        return [], []
 
 
 # ============ Schedule Override Functions ============
