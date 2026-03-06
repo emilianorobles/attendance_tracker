@@ -42,12 +42,18 @@ def get_pg_connection():
     conn = psycopg2.connect(dsn, sslmode="require", connect_timeout=10)
     try:
         yield conn
-        conn.commit()
+        if not conn.closed:
+            conn.commit()
     except Exception:
-        conn.rollback()
-        raise
+        if not conn.closed:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise  # re-raise the original error
     finally:
-        conn.close()  # Always returned to pooler immediately
+        if not conn.closed:
+            conn.close()  # Always returned to pooler immediately
 
 
 def _get_sqlite_connection():
@@ -113,10 +119,6 @@ def init_shift_tables():
         
         cur.execute("""CREATE INDEX IF NOT EXISTS idx_shift_assignments_lookup ON agent_shift_assignments(agent_id, day_of_week, effective_start)""")
         cur.execute("""CREATE INDEX IF NOT EXISTS idx_roster_status_lookup ON agent_roster_status(agent_id, effective_start)""")
-        
-        con.commit()
-        cur.close()
-        con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -184,11 +186,8 @@ def seed_shift_templates():
     if USE_POSTGRES:
         with get_pg_connection() as con:
             cur = con.cursor()
-        for code, start, end, crosses, color, label in templates:
-            cur.execute("""INSERT INTO shift_templates (shift_code, start_time, end_time, crosses_midnight, color, label) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (shift_code) DO NOTHING""", (code, start, end, crosses, color, label))
-            con.commit()
-            cur.close()
-            con.close()
+            for code, start, end, crosses, color, label in templates:
+                cur.execute("""INSERT INTO shift_templates (shift_code, start_time, end_time, crosses_midnight, color, label) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (shift_code) DO NOTHING""", (code, start, end, crosses, color, label))
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -205,8 +204,6 @@ def get_all_shift_templates() -> List[Dict[str, Any]]:
             cur = con.cursor()
             cur.execute("SELECT shift_code, start_time, end_time, crosses_midnight, color, label FROM shift_templates ORDER BY shift_code")
             rows = cur.fetchall()
-            cur.close()
-            con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -225,9 +222,6 @@ def add_shift_template(shift_code: str, start_time: str, end_time: str, crosses_
             cur.execute("""INSERT INTO shift_templates (shift_code, start_time, end_time, crosses_midnight, color, label) 
                            VALUES (%s, %s, %s, %s, %s, %s)""", 
                         (shift_code, start_time, end_time, crosses_midnight, color, label))
-            con.commit()
-        cur.close()
-        con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -248,9 +242,6 @@ def update_shift_template(shift_code: str, start_time: str, end_time: str, cross
             cur.execute("""UPDATE shift_templates SET start_time = %s, end_time = %s, crosses_midnight = %s, color = %s, label = %s 
                            WHERE shift_code = %s""", 
                         (start_time, end_time, crosses_midnight, color, label, shift_code))
-            con.commit()
-        cur.close()
-        con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
