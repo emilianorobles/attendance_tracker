@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 import os
 import csv
+import contextlib
 
 from .storage import sync_db_to_r2
 
@@ -32,19 +33,21 @@ if DATABASE_URL:
     except ImportError:
         USE_POSTGRES = False
 
-
-def _get_pg_connection():
-    dsn = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
+@contextlib.contextmanager
+def get_pg_connection():
+    """Always opens a fresh connection and closes it when done."""
+    dsn = os.environ.get("DATABASE_URL")
     if not dsn:
-        raise RuntimeError("No PostgreSQL DSN configured")
-    
-    # Supabase transaction pooler requires these options
-    return psycopg2.connect(
-        dsn,
-        sslmode="require",
-        connect_timeout=10,
-        options="-c statement_timeout=30000"
-    )
+        raise RuntimeError("No DATABASE_URL configured")
+    conn = psycopg2.connect(dsn, sslmode="require", connect_timeout=10)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()  # Always returned to pooler immediately
 
 
 def _get_sqlite_connection():
@@ -58,12 +61,12 @@ def init_shift_tables():
     Call this on app startup after init_db().
     """
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS shift_templates (
-                id SERIAL PRIMARY KEY,
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS shift_templates (
+                    id SERIAL PRIMARY KEY,
                 shift_code VARCHAR(10) UNIQUE NOT NULL,
                 start_time VARCHAR(5),
                 end_time VARCHAR(5),
@@ -179,13 +182,13 @@ def seed_shift_templates():
     templates = [(code, info["start"], info["end"], info["crosses_midnight"], info["color"], info["label"]) for code, info in SHIFT_CATALOG.items()]
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
+        with get_pg_connection() as con:
+            cur = con.cursor()
         for code, start, end, crosses, color, label in templates:
             cur.execute("""INSERT INTO shift_templates (shift_code, start_time, end_time, crosses_midnight, color, label) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (shift_code) DO NOTHING""", (code, start, end, crosses, color, label))
-        con.commit()
-        cur.close()
-        con.close()
+            con.commit()
+            cur.close()
+            con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -198,12 +201,12 @@ def seed_shift_templates():
 def get_all_shift_templates() -> List[Dict[str, Any]]:
     """Get all shift templates from the database."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("SELECT shift_code, start_time, end_time, crosses_midnight, color, label FROM shift_templates ORDER BY shift_code")
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("SELECT shift_code, start_time, end_time, crosses_midnight, color, label FROM shift_templates ORDER BY shift_code")
+            rows = cur.fetchall()
+            cur.close()
+            con.close()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -217,12 +220,12 @@ def get_all_shift_templates() -> List[Dict[str, Any]]:
 def add_shift_template(shift_code: str, start_time: str, end_time: str, crosses_midnight: bool, color: str, label: str) -> bool:
     """Add a new shift template."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("""INSERT INTO shift_templates (shift_code, start_time, end_time, crosses_midnight, color, label) 
-                       VALUES (%s, %s, %s, %s, %s, %s)""", 
-                    (shift_code, start_time, end_time, crosses_midnight, color, label))
-        con.commit()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("""INSERT INTO shift_templates (shift_code, start_time, end_time, crosses_midnight, color, label) 
+                           VALUES (%s, %s, %s, %s, %s, %s)""", 
+                        (shift_code, start_time, end_time, crosses_midnight, color, label))
+            con.commit()
         cur.close()
         con.close()
     else:
@@ -240,12 +243,12 @@ def add_shift_template(shift_code: str, start_time: str, end_time: str, crosses_
 def update_shift_template(shift_code: str, start_time: str, end_time: str, crosses_midnight: bool, color: str, label: str) -> bool:
     """Update an existing shift template."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("""UPDATE shift_templates SET start_time = %s, end_time = %s, crosses_midnight = %s, color = %s, label = %s 
-                       WHERE shift_code = %s""", 
-                    (start_time, end_time, crosses_midnight, color, label, shift_code))
-        con.commit()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("""UPDATE shift_templates SET start_time = %s, end_time = %s, crosses_midnight = %s, color = %s, label = %s 
+                           WHERE shift_code = %s""", 
+                        (start_time, end_time, crosses_midnight, color, label, shift_code))
+            con.commit()
         cur.close()
         con.close()
     else:
@@ -264,18 +267,13 @@ def delete_shift_template(shift_code: str) -> bool:
     """Delete a shift template. Cannot delete if in use by agents."""
     # Check if shift is in use
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE shift_code = %s", (shift_code,))
-        count = cur.fetchone()[0]
-        if count > 0:
-            cur.close()
-            con.close()
-            return False  # Cannot delete - in use
-        cur.execute("DELETE FROM shift_templates WHERE shift_code = %s", (shift_code,))
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE shift_code = %s", (shift_code,))
+            count = cur.fetchone()[0]
+            if count > 0:
+                return False  # Cannot delete - in use
+            cur.execute("DELETE FROM shift_templates WHERE shift_code = %s", (shift_code,))
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -374,28 +372,25 @@ def sync_agents_from_csv():
         all_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         
         if USE_POSTGRES:
-            con = _get_pg_connection()
-            cur = con.cursor()
-            for agent in csv_agents:
-                try:
-                    if not agent["agent_id"]:
-                        continue
-                    cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
-                    cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
-                    if cur.fetchone()[0] > 0:
-                        continue
-                    
-                    shift_code = map_time_to_shift_code(agent["expected_start"], agent["expected_end"])
-                    working_days = parse_working_days(agent["working_days"])
-                    for day in all_days:
-                        day_shift = shift_code if day in working_days else 'OFF'
-                        cur.execute("""INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
-                except Exception as e:
-                    print(f"Error syncing agent {agent.get('agent_id')}: {e}")
+            with get_pg_connection() as con:
+                cur = con.cursor()
+                for agent in csv_agents:
+                    try:
+                        if not agent["agent_id"]:
+                            continue
+                        cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
+                        cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
+                        if cur.fetchone()[0] > 0:
+                            continue
+                        
+                        shift_code = map_time_to_shift_code(agent["expected_start"], agent["expected_end"])
+                        working_days = parse_working_days(agent["working_days"])
+                        for day in all_days:
+                            day_shift = shift_code if day in working_days else 'OFF'
+                            cur.execute("""INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
+                    except Exception as e:
+                        print(f"Error syncing agent {agent.get('agent_id')}: {e}")
             
-            con.commit()
-            cur.close()
-            con.close()
             print(f"Synced {len(csv_agents)} agents to PostgreSQL")
         else:
             con = _get_sqlite_connection()
@@ -436,12 +431,10 @@ def get_all_agents() -> List[Dict[str, Any]]:
     """Get ALL agents from agent_roster table."""
     try:
         if USE_POSTGRES:
-            con = _get_pg_connection()
-            cur = con.cursor()
-            cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
-            rows = cur.fetchall()
-            cur.close()
-            con.close()
+            with get_pg_connection() as con:
+                cur = con.cursor()
+                cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+                rows = cur.fetchall()
         else:
             con = _get_sqlite_connection()
             cur = con.cursor()
@@ -458,12 +451,10 @@ def get_all_agents() -> List[Dict[str, Any]]:
 def get_all_roster_agent_ids() -> set:
     """Get set of all agent IDs currently in the roster table."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("SELECT agent_id FROM agent_roster")
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("SELECT agent_id FROM agent_roster")
+            rows = cur.fetchall()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -477,12 +468,10 @@ def get_all_roster_agent_ids() -> set:
 def get_agent_status_on_date(agent_id: str, target_date: date) -> str:
     """Get agent's status (Active/Inactive) on a specific date. Returns 'Active' if no status record exists."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("""SELECT status FROM agent_roster_status WHERE agent_id = %s AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s) ORDER BY effective_start DESC LIMIT 1""", (agent_id, target_date.isoformat(), target_date.isoformat()))
-        row = cur.fetchone()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("""SELECT status FROM agent_roster_status WHERE agent_id = %s AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s) ORDER BY effective_start DESC LIMIT 1""", (agent_id, target_date.isoformat(), target_date.isoformat()))
+            row = cur.fetchone()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -497,14 +486,11 @@ def add_agent_to_roster(agent_id: str, full_name: str, lead: str, effective_date
     ts = datetime.now().isoformat(timespec="seconds")
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead RETURNING id""", (agent_id, full_name, lead, ts))
-        roster_id = cur.fetchone()[0]
-        cur.execute("""INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (%s, 'Active', %s, %s)""", (agent_id, effective_date.isoformat(), ts))
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead RETURNING id""", (agent_id, full_name, lead, ts))
+            roster_id = cur.fetchone()[0]
+            cur.execute("""INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (%s, 'Active', %s, %s)""", (agent_id, effective_date.isoformat(), ts))
         return roster_id
     else:
         con = _get_sqlite_connection()
@@ -530,12 +516,9 @@ def update_agent_lead(agent_id: str, new_lead: str, effective_date: date) -> boo
     # for future audit/history features. To implement full effective dating for leads,
     # a separate agent_lead_history table would be needed.
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("UPDATE agent_roster SET lead = %s WHERE agent_id = %s", (new_lead, agent_id))
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("UPDATE agent_roster SET lead = %s WHERE agent_id = %s", (new_lead, agent_id))
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -557,17 +540,14 @@ def remove_agent_from_roster(agent_id: str, effective_date: date) -> bool:
     The agent will completely disappear from the roster starting from the effective date.
     """
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        # Delete shift assignments for this agent
-        cur.execute("DELETE FROM agent_shift_assignments WHERE agent_id = %s", (agent_id,))
-        # Delete status records for this agent
-        cur.execute("DELETE FROM agent_roster_status WHERE agent_id = %s", (agent_id,))
-        # Delete from roster
-        cur.execute("DELETE FROM agent_roster WHERE agent_id = %s", (agent_id,))
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            # Delete shift assignments for this agent
+            cur.execute("DELETE FROM agent_shift_assignments WHERE agent_id = %s", (agent_id,))
+            # Delete status records for this agent
+            cur.execute("DELETE FROM agent_roster_status WHERE agent_id = %s", (agent_id,))
+            # Delete from roster
+            cur.execute("DELETE FROM agent_roster WHERE agent_id = %s", (agent_id,))
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -588,12 +568,10 @@ def get_shift_for_agent_day(agent_id: str, day_of_week: str, target_date: date) 
     from .models.shifts import SHIFT_CATALOG
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("""SELECT id, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s AND day_of_week = %s AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s) ORDER BY effective_start DESC LIMIT 1""", (agent_id, day_of_week, target_date.isoformat(), target_date.isoformat()))
-        row = cur.fetchone()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("""SELECT id, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s AND day_of_week = %s AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s) ORDER BY effective_start DESC LIMIT 1""", (agent_id, day_of_week, target_date.isoformat(), target_date.isoformat()))
+            row = cur.fetchone()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -619,16 +597,13 @@ def upsert_shift_assignment(agent_id: str, day_of_week: str, shift_code: str, ef
         return {"status": "no_change", "message": f"Agent {agent_id} already has {shift_code} on {day_of_week}", "assignment_id": current["id"]}
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        if current:
-            prev_end = effective_date - timedelta(days=1)
-            cur.execute("UPDATE agent_shift_assignments SET effective_end = %s, updated_at = %s WHERE id = %s", (prev_end.isoformat(), ts, current["id"]))
-        cur.execute("INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id", (agent_id, day_of_week, shift_code, effective_date.isoformat(), ts, ts))
-        new_id = cur.fetchone()[0]
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            if current:
+                prev_end = effective_date - timedelta(days=1)
+                cur.execute("UPDATE agent_shift_assignments SET effective_end = %s, updated_at = %s WHERE id = %s", (prev_end.isoformat(), ts, current["id"]))
+            cur.execute("INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id", (agent_id, day_of_week, shift_code, effective_date.isoformat(), ts, ts))
+            new_id = cur.fetchone()[0]
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -654,15 +629,13 @@ def get_shift_history_for_agent(agent_id: str, day_of_week: Optional[str] = None
     from .models.shifts import SHIFT_CATALOG
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        if day_of_week:
-            cur.execute("SELECT id, day_of_week, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s AND day_of_week = %s ORDER BY effective_start DESC", (agent_id, day_of_week))
-        else:
-            cur.execute("SELECT id, day_of_week, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s ORDER BY day_of_week, effective_start DESC", (agent_id,))
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            if day_of_week:
+                cur.execute("SELECT id, day_of_week, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s AND day_of_week = %s ORDER BY effective_start DESC", (agent_id, day_of_week))
+            else:
+                cur.execute("SELECT id, day_of_week, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s ORDER BY day_of_week, effective_start DESC", (agent_id,))
+            rows = cur.fetchall()
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
