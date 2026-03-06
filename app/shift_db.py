@@ -34,20 +34,17 @@ if DATABASE_URL:
 
 
 def _get_pg_connection():
-    """Get a Postgres connection."""
-    if not psycopg2:
-        raise RuntimeError("psycopg2 not installed")
-    if not PG_DSN:
-        raise RuntimeError("DATABASE_URL not configured")
+    dsn = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
+    if not dsn:
+        raise RuntimeError("No PostgreSQL DSN configured")
     
-    # Handle both postgresql:// and postgres:// URL formats
-    dsn = PG_DSN.replace("postgresql://", "postgres://") if "postgresql://" in PG_DSN else PG_DSN
-    
-    try:
-        return psycopg2.connect(dsn, sslmode="require")
-    except Exception as e:
-        print(f"Failed to connect to PostgreSQL with DSN: {dsn[:50]}...")
-        raise
+    # Supabase transaction pooler requires these options
+    return psycopg2.connect(
+        dsn,
+        sslmode="require",
+        connect_timeout=10,
+        options="-c statement_timeout=30000"
+    )
 
 
 def _get_sqlite_connection():
