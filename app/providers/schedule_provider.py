@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any, Tuple
 from datetime import date, datetime, time
 import pandas as pd
 
-from ..shift_db import get_shift_for_agent_day, get_all_roster_agents
+from ..shift_db import get_shifts_for_agents_bulk, get_all_roster_agents
 from ..models.shifts import SHIFT_CATALOG, DayOfWeek
 from ..utils import parse_hhmm_or_hhmmss
 
@@ -79,7 +79,7 @@ class ScheduleProvider:
             Or None if agent not found
         """
         # Query the database
-        shift_assignment = get_shift_for_agent_day(agent_id, day_of_week, target_date)
+        shift_assignment = get_shifts_for_agents_bulk(agent_id, day_of_week, target_date)
         
         if not shift_assignment:
             # No shift found for this agent/day

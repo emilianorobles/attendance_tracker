@@ -81,9 +81,9 @@ def init_shift_tables():
                 label VARCHAR(50),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+            """)
         
-        cur.execute("""
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS agent_roster_status (
                 id SERIAL PRIMARY KEY,
                 agent_id VARCHAR(20) NOT NULL,
@@ -92,9 +92,9 @@ def init_shift_tables():
                 effective_end DATE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+            """)
         
-        cur.execute("""
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS agent_roster (
                 id SERIAL PRIMARY KEY,
                 agent_id VARCHAR(20) UNIQUE NOT NULL,
@@ -102,9 +102,9 @@ def init_shift_tables():
                 lead VARCHAR(50),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+            """)
         
-        cur.execute("""
+            cur.execute("""
             CREATE TABLE IF NOT EXISTS agent_shift_assignments (
                 id SERIAL PRIMARY KEY,
                 agent_id VARCHAR(20) NOT NULL,
@@ -115,10 +115,10 @@ def init_shift_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """)
+            """)
         
-        cur.execute("""CREATE INDEX IF NOT EXISTS idx_shift_assignments_lookup ON agent_shift_assignments(agent_id, day_of_week, effective_start)""")
-        cur.execute("""CREATE INDEX IF NOT EXISTS idx_roster_status_lookup ON agent_roster_status(agent_id, effective_start)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_shift_assignments_lookup ON agent_shift_assignments(agent_id, day_of_week, effective_start)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_roster_status_lookup ON agent_roster_status(agent_id, effective_start)""")
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -554,36 +554,37 @@ def remove_agent_from_roster(agent_id: str, effective_date: date) -> bool:
     return True
 
 
-def get_shift_for_agent_day(agent_id: str, day_of_week: str, target_date: date) -> Optional[Dict[str, Any]]:
-    """Get the shift assignment for an agent on a specific day for a given date."""
-    from .models.shifts import SHIFT_CATALOG
+def get_shifts_for_agents_bulk(agent_ids: list, start_date, end_date) -> dict:
+    """
+    Returns a dict: {(agent_id, day_of_week): shift_code}
+    Single query instead of one per agent per day.
+    """
+    if not agent_ids:
+        return {}
     
-    if USE_POSTGRES:
-        with get_pg_connection() as con:
-            cur = con.cursor()
-            cur.execute("""SELECT id, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = %s AND day_of_week = %s AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s) ORDER BY effective_start DESC LIMIT 1""", (agent_id, day_of_week, target_date.isoformat(), target_date.isoformat()))
-            row = cur.fetchone()
-    else:
-        con = _get_sqlite_connection()
-        cur = con.cursor()
-        cur.execute("""SELECT id, shift_code, effective_start, effective_end FROM agent_shift_assignments WHERE agent_id = ? AND day_of_week = ? AND effective_start <= ? AND (effective_end IS NULL OR effective_end >= ?) ORDER BY effective_start DESC LIMIT 1""", (agent_id, day_of_week, target_date.isoformat(), target_date.isoformat()))
-        row = cur.fetchone()
-        con.close()
-    
-    if not row:
-        return None
-    
-    shift_code = row[1]
-    info = SHIFT_CATALOG.get(shift_code, {})
-    
-    return {"id": row[0], "shift_code": shift_code, "effective_start": row[2], "effective_end": row[3], "start_time": info.get("start"), "end_time": info.get("end"), "crosses_midnight": info.get("crosses_midnight", False), "color": info.get("color", "#6B7280"), "label": info.get("label", shift_code)}
+    with get_pg_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT agent_id, day_of_week, shift_code, effective_start, effective_end 
+            FROM agent_shift_assignments 
+            WHERE agent_id = ANY(%s) AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s)
+            ORDER BY effective_start DESC
+        """, (agent_ids, end_date.isoformat(), start_date.isoformat()))
+        rows = cur.fetchall()
+
+    result = {}
+    for agent_id, day_of_week, shift_code, effective_start, effective_end in rows:
+        key = (agent_id, day_of_week)
+        if key not in result:
+            result[key] = {"shift_code": shift_code, "effective_start": effective_start, "effective_end": effective_end}
+    return result
 
 
 def upsert_shift_assignment(agent_id: str, day_of_week: str, shift_code: str, effective_date: date) -> Dict[str, Any]:
     """Create or update a shift assignment with effective dating."""
     ts = datetime.now().isoformat(timespec="seconds")
     
-    current = get_shift_for_agent_day(agent_id, day_of_week, effective_date)
+    current = get_shifts_for_agents_bulk([agent_id], effective_date, effective_date).get((agent_id, day_of_week))
     if current and current["shift_code"] == shift_code:
         return {"status": "no_change", "message": f"Agent {agent_id} already has {shift_code} on {day_of_week}", "assignment_id": current["id"]}
     
@@ -640,11 +641,11 @@ def get_shift_history_for_agent(agent_id: str, day_of_week: Optional[str] = None
     return [{"id": r[0], "day_of_week": r[1], "shift_code": r[2], "effective_start": r[3], "effective_end": r[4], "color": SHIFT_CATALOG.get(r[2], {}).get("color", "#6B7280")} for r in rows]
 
 
-def get_roster_matrix(week_start: date, lead_filter: Optional[str] = None, agent_filter: Optional[str] = None, status_filter: str = "active") -> Dict[str, Any]:
-    """Build the roster matrix for a week starting from week_start. Returns ALL agents by default."""
-    from .models.shifts import DayOfWeek, SHIFT_CATALOG
+def get_roster_matrix(week_start: date, lead_filter = None, agent_filter = None, status_filter = "active"):
+    from .models.shifts import SHIFT_CATALOG
     
     DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    week_end = week_start + timedelta(days=6)
     week_dates = {day: (week_start + timedelta(days=i)).isoformat() for i, day in enumerate(DAYS)}
     
     all_agents = get_all_agents()
@@ -653,31 +654,84 @@ def get_roster_matrix(week_start: date, lead_filter: Optional[str] = None, agent
         all_agents = [a for a in all_agents if a["lead"] == lead_filter]
     if agent_filter:
         all_agents = [a for a in all_agents if a["agent_id"] == agent_filter]
+
+    agent_ids = [a["agent_id"] for a in all_agents]
+    statuses = get_agent_statuses_bulk(agent_ids, week_start)
     
     if status_filter == "active":
-        all_agents = [a for a in all_agents if get_agent_status_on_date(a["agent_id"], week_start) == 'Active']
+        all_agents = [a for a in all_agents if statuses.get(a["agent_id"]) == "Active"]
+        agent_ids = [a["agent_id"] for a in all_agents]
+    
+    bulk_shifts = get_shifts_for_agents_bulk(agent_ids, week_start, week_end)
+
+    db_templates = get_all_shift_templates()
+    db_catalog = {t["shift_code"]: t for t in db_templates}
     
     matrix_agents = []
     for agent in all_agents:
-        agent_data = {"agent_id": agent["agent_id"], "full_name": agent["full_name"], "lead": agent["lead"], "status": get_agent_status_on_date(agent["agent_id"], week_start), "days": {}}
+        agent_data = {
+            "agent_id": agent["agent_id"],
+            "full_name": agent["full_name"],
+            "lead": agent["lead"],
+            "status": get_agent_status_on_date(agent["agent_id"], week_start),
+            "days": {}
+        }
         
         for day in DAYS:
-            target_date = date.fromisoformat(week_dates[day])
-            shift = get_shift_for_agent_day(agent["agent_id"], day, target_date)
-            
-            if shift:
-                agent_data["days"][day] = {"shift_code": shift["shift_code"], "start_time": shift["start_time"], "end_time": shift["end_time"], "color": shift["color"], "label": shift["label"], "effective_start": shift["effective_start"], "effective_end": shift["effective_end"], "crosses_midnight": shift["crosses_midnight"]}
+            shift_info = bulk_shifts.get((agent["agent_id"], day))
+            if shift_info:
+                code = shift_info["shift_code"]
+                tmpl = db_catalog.get(code, {})
+                agent_data["days"][day] = {
+                    "shift_code": code,
+                    "start_time": tmpl.get("start_time"),
+                    "end_time": tmpl.get("end_time"),
+                    "color": tmpl.get("color", "#374151"),
+                    "label": tmpl.get("label", code),
+                    "crosses_midnight": tmpl.get("crosses_midnight", False),
+                    "effective_start": shift_info["effective_start"],
+                    "effective_end": shift_info["effective_end"],
+                }
             else:
-                agent_data["days"][day] = {"shift_code": "", "start_time": None, "end_time": None, "color": "#374151", "label": "Not Assigned", "effective_start": None, "effective_end": None, "crosses_midnight": False}
-        
+                agent_data["days"][day] = {
+                    "shift_code": "", "start_time": None, "end_time": None,
+                    "color": "#374151", "label": "Not Assigned",
+                    "effective_start": None, "effective_end": None, "crosses_midnight": False
+                }
+            
         matrix_agents.append(agent_data)
     
-    # Build shift catalog from database templates
-    db_templates = get_all_shift_templates()
-    db_catalog = {t["shift_code"]: {"start": t["start_time"], "end": t["end_time"], "color": t["color"], "label": t["label"], "crosses_midnight": t["crosses_midnight"]} for t in db_templates}
-    
-    return {"agents": matrix_agents, "week_start": week_start.isoformat(), "week_dates": week_dates, "shift_catalog": db_catalog, "total_agents": len(matrix_agents)}
+    return {
+        "agents": matrix_agents,
+        "week_start": week_start.isoformat(),
+        "week_dates": week_dates,
+        "shift_catalog": {k: {"start": v["start_time"], "end": v["end_time"],
+                              "color": v["color"], "label": v["label"],
+                              "crosses_midnight": v["crosses_midnight"]} for k, v in db_catalog.items()},
+        "total_agents": len(matrix_agents)
+    }
 
+def get_agent_statuses_bulk(agent_ids: list, target_date: date) -> dict:
+    """Returns {agent_id: status} for all agents in one query."""
+    if not agent_ids or not USE_POSTGRES:
+        return {}
+    with get_pg_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT ON (agent_id) agent_id, status
+            FROM agent_roster_status
+            WHERE agent_id = ANY(%s)
+                AND effective_start <= %s
+                AND (effective_end IS NULL OR effective_end >= %s)
+            ORDER BY agent_id, effective_start DESC
+        """, (agent_ids, target_date.isoformat(), target_date.isoformat()))
+        rows = cur.fetchall()
+    result = {r[0]: r[1] for r in rows}
+
+    for aid in agent_aids:
+        result.setdefault(aid, "Active")
+    return result
+    
 
 def get_all_roster_agents() -> List[Dict[str, Any]]:
     """Alias for get_all_agents for backward compatibility."""

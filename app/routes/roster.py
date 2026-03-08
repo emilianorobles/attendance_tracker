@@ -17,7 +17,7 @@ from ..shift_db import (
     remove_agent_from_roster,
     get_active_agents_on_date,
     get_all_roster_agents,
-    get_shift_for_agent_day,
+    get_shifts_for_agents_bulk,
     upsert_shift_assignment,
     bulk_upsert_shift_assignments,
     get_roster_matrix,
