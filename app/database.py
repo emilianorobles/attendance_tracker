@@ -1,6 +1,7 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from .shift_db import get_pg_connection
 
 
 # SQLAlchemy support for FastAPI endpoints
@@ -40,59 +41,52 @@ if DATABASE_URL:
         USE_POSTGRES = False
 
 
-def _get_pg_connection():
-    """Get a Postgres connection."""
-    return psycopg2.connect(PG_DSN, sslmode="require")
-
-
 def init_db():
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS justifications (
-                id SERIAL PRIMARY KEY,
-                agent_id TEXT NOT NULL,
-                date DATE NOT NULL,
-                type TEXT NOT NULL,
-                note TEXT,
-                lead TEXT,
-                created_at TIMESTAMP NOT NULL
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS justifications (
+                    id SERIAL PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    date DATE NOT NULL,
+                    type TEXT NOT NULL,
+                    note TEXT,
+                    lead TEXT,
+                    created_at TIMESTAMP NOT NULL
+                )
+                """
             )
-            """
-        )
-        # Schedule versions table
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schedule_versions (
-                id SERIAL PRIMARY KEY,
-                effective_from DATE NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                note TEXT
+            # Schedule versions table
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schedule_versions (
+                    id SERIAL PRIMARY KEY,
+                    effective_from DATE NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    note TEXT
+                )
+                """
             )
-            """
-        )
-        # Schedule entries linked to versions
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS schedule_entries (
-                id SERIAL PRIMARY KEY,
-                version_id INTEGER NOT NULL REFERENCES schedule_versions(id),
-                agent_id TEXT NOT NULL,
-                shift TEXT,
-                name TEXT NOT NULL,
-                lead TEXT,
-                working_days TEXT,
-                days_off TEXT,
-                expected_start TEXT,
-                expected_end TEXT
+            # Schedule entries linked to versions
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schedule_entries (
+                    id SERIAL PRIMARY KEY,
+                    version_id INTEGER NOT NULL REFERENCES schedule_versions(id),
+                    agent_id TEXT NOT NULL,
+                    shift TEXT,
+                    name TEXT NOT NULL,
+                    lead TEXT,
+                    working_days TEXT,
+                    days_off TEXT,
+                    expected_start TEXT,
+                    expected_end TEXT
+                )
+                """
             )
-            """
-        )
-        con.commit()
-        cur.close()
-        con.close()
+            con.commit()
     else:
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -152,28 +146,26 @@ def save_schedule_version(df: pd.DataFrame, effective_from: date, note: str = ""
     ts = datetime.now().isoformat(timespec="seconds")
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute(
-            "INSERT INTO schedule_versions(effective_from, created_at, note) VALUES(%s, %s, %s) RETURNING id",
-            (effective_from.isoformat(), ts, note)
-        )
-        version_id = cur.fetchone()[0]
-        
-        # Insert all schedule entries
-        for _, row in df.iterrows():
+        with get_pg_connection() as con:
+            cur = con.cursor()
             cur.execute(
-                """INSERT INTO schedule_entries(version_id, agent_id, shift, name, lead, 
-                   working_days, days_off, expected_start, expected_end) 
-                   VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (version_id, str(row.get("agent_id", "")), str(row.get("Shift", "")),
-                 str(row.get("name", "")), str(row.get("lead", "")),
-                 str(row.get("working_days", "")), str(row.get("days_off", "")),
-                 str(row.get("expected_start", "")), str(row.get("expected_end", "")))
+                "INSERT INTO schedule_versions(effective_from, created_at, note) VALUES(%s, %s, %s) RETURNING id",
+                (effective_from.isoformat(), ts, note)
             )
-        con.commit()
-        cur.close()
-        con.close()
+            version_id = cur.fetchone()[0]
+            
+            # Insert all schedule entries
+            for _, row in df.iterrows():
+                cur.execute(
+                    """INSERT INTO schedule_entries(version_id, agent_id, shift, name, lead, 
+                       working_days, days_off, expected_start, expected_end) 
+                       VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (version_id, str(row.get("agent_id", "")), str(row.get("Shift", "")),
+                     str(row.get("name", "")), str(row.get("lead", "")),
+                     str(row.get("working_days", "")), str(row.get("days_off", "")),
+                     str(row.get("expected_start", "")), str(row.get("expected_end", "")))
+                )
+            con.commit()
     else:
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -207,17 +199,15 @@ def get_schedule_version_for_date(target_date: date) -> Optional[int]:
     Returns the version with the largest effective_from <= target_date.
     """
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute(
-            """SELECT id FROM schedule_versions 
-               WHERE effective_from <= %s 
-               ORDER BY effective_from DESC LIMIT 1""",
-            (target_date.isoformat(),)
-        )
-        row = cur.fetchone()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute(
+                """SELECT id FROM schedule_versions 
+                   WHERE effective_from <= %s 
+                   ORDER BY effective_from DESC LIMIT 1""",
+                (target_date.isoformat(),)
+            )
+            row = cur.fetchone()
         return row[0] if row else None
     else:
         con = sqlite3.connect(DB_PATH)
@@ -236,17 +226,15 @@ def get_schedule_version_for_date(target_date: date) -> Optional[int]:
 def get_schedule_entries_for_version(version_id: int) -> List[Dict[str, Any]]:
     """Get all schedule entries for a specific version."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute(
-            """SELECT agent_id, shift, name, lead, working_days, days_off, 
-                      expected_start, expected_end 
-               FROM schedule_entries WHERE version_id = %s""",
-            (version_id,)
-        )
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute(
+                """SELECT agent_id, shift, name, lead, working_days, days_off, 
+                          expected_start, expected_end 
+                   FROM schedule_entries WHERE version_id = %s""",
+                (version_id,)
+            )
+            rows = cur.fetchall()
     else:
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -288,14 +276,12 @@ def get_schedule_for_date(target_date: date) -> Optional[pd.DataFrame]:
 def get_all_schedule_versions() -> List[Dict[str, Any]]:
     """Get all schedule versions with their effective dates."""
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute(
-            "SELECT id, effective_from, created_at, note FROM schedule_versions ORDER BY effective_from DESC"
-        )
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute(
+                "SELECT id, effective_from, created_at, note FROM schedule_versions ORDER BY effective_from DESC"
+            )
+            rows = cur.fetchall()
     else:
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -316,23 +302,21 @@ def upsert_justification(agent_id: str, day: date, typ: str, note: str, lead: st
     ts = datetime.now().isoformat(timespec="seconds")
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("SELECT id FROM justifications WHERE agent_id=%s AND date=%s", (agent_id, day.isoformat()))
-        row = cur.fetchone()
-        if row:
-            cur.execute(
-                "UPDATE justifications SET type=%s, note=%s, lead=%s, created_at=%s WHERE id=%s",
-                (typ, note, lead, ts, row[0]),
-            )
-        else:
-            cur.execute(
-                "INSERT INTO justifications(agent_id, date, type, note, lead, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
-                (agent_id, day.isoformat(), typ, note, lead, ts),
-            )
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("SELECT id FROM justifications WHERE agent_id=%s AND date=%s", (agent_id, day.isoformat()))
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    "UPDATE justifications SET type=%s, note=%s, lead=%s, created_at=%s WHERE id=%s",
+                    (typ, note, lead, ts, row[0]),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO justifications(agent_id, date, type, note, lead, created_at) VALUES(%s,%s,%s,%s,%s,%s)",
+                    (agent_id, day.isoformat(), typ, note, lead, ts),
+                )
+            con.commit()
     else:
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -356,12 +340,10 @@ def upsert_justification(agent_id: str, day: date, typ: str, note: str, lead: st
 
 def delete_justification(agent_id: str, day: date):
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute("DELETE FROM justifications WHERE agent_id=%s AND date=%s", (agent_id, day.isoformat()))
-        con.commit()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("DELETE FROM justifications WHERE agent_id=%s AND date=%s", (agent_id, day.isoformat()))
+            con.commit()
     else:
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -376,15 +358,13 @@ def get_justifications_map(start: date, end: date) -> Dict[Tuple[str, date], Dic
     out: Dict[Tuple[str, date], Dict[str, Any]] = {}
     
     if USE_POSTGRES:
-        con = _get_pg_connection()
-        cur = con.cursor()
-        cur.execute(
-            "SELECT agent_id, date, type, note, lead FROM justifications WHERE date>=%s AND date<=%s",
-            (start.isoformat(), end.isoformat()),
-        )
-        rows = cur.fetchall()
-        cur.close()
-        con.close()
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute(
+                "SELECT agent_id, date, type, note, lead FROM justifications WHERE date>=%s AND date<=%s",
+                (start.isoformat(), end.isoformat()),
+            )
+            rows = cur.fetchall()
         for agent_id, d_val, typ, note, lead in rows:
             if hasattr(d_val, "isoformat"):
                 d = date.fromisoformat(d_val.isoformat())
@@ -406,44 +386,42 @@ def get_justifications_map(start: date, end: date) -> Dict[Tuple[str, date], Dic
     return out
 
 
-def get_all_agents_and_leads() -> Tuple[List[str], List[Dict[str, str]]]:
-    """Get all unique leads and agents from roster and schedule versions.
-    Filters out agents that have been deleted from the roster.
-    Uses database instead of CSV.
-    """
+def get_all_agents_and_leads():
     try:
-        from .shift_db import get_all_roster_agent_ids, get_all_roster_agents  # Get agents from BD
-        
+        from .shift_db import get_all_roster_agents
+
         leads = set()
-        agents = {}  # agent_id -> {"id": agent_id, "name": name}
-        
-        # Get all agents from roster (replaces old CSV-based approach)
+        agents = {}
+
+        # Primary source: roster table
         try:
-            all_roster_agents = get_all_roster_agents()
-            for agent in all_roster_agents:
+            for agent in get_all_roster_agents():
                 agent_id = str(agent["agent_id"])
-                leads.add(agent.get("lead", ""))
+                if agent.get("lead"):
+                    leads.add(agent["lead"])
                 agents[agent_id] = {"id": agent_id, "name": agent.get("full_name", "")}
         except Exception as e:
             print(f"Warning: Could not get roster agents: {e}")
         
-        # Add from all schedule versions (as before)
-        try:
-            versions = get_all_schedule_versions()
-            for version in versions:
-                entries = get_schedule_entries_for_version(version["id"])
-                for entry in entries:
-                    agent_id = entry["agent_id"]
-                    if agent_id not in agents:
-                        leads.add(entry["lead"])
-                        agents[agent_id] = {"id": agent_id, "name": entry["name"]}
-        except Exception as e:
-            print(f"Warning: Could not get schedule versions: {e}")
+        # Secondary source: schedule_entries - single JOIN query instead of N+1
+        if USE_POSTGRES:
+            try:
+                with get_pg_connection() as con:
+                    cur = con.cursor()
+                    cur.execute("""
+                        SELECT DISTINCT e.agent_id, e.name, e.lead
+                        FROM schedule_entries e
+                    """)
+                    for agent_id, name, lead in cur.fetchall():
+                        if agent_id not in agents:
+                            agents[agent_id] = {"id": agent_id, "name": name}
+                        if lead:
+                            leads.add(lead)
+            except Exception as e:
+                print(f"Warning: Could not get schedule entries: {e}")
         
-        # Clean up empty leads
-        leads = {l for l in leads if l}
-        
-        return sorted(list(leads)), list(agents.values())
+        return sorted(l for l in leads if l), list(agents.values())
+    
     except Exception as e:
         print(f"Error in get_all_agents_and_leads: {e}")
         return [], []

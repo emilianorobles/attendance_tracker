@@ -206,3 +206,76 @@ class ScheduleProvider:
             "overtime_minutes": overtime_minutes,
             "status": status
         }
+
+
+    @staticmethod
+    def get_schedule_cache_for_range(start_date: date, end_date: date) -> Dict[date, pd.DataFrame]:
+        """
+        Replaces 31 per-day DB calls with a single bulk query.
+        Returns {date: DataFrame} for the entire data range.
+        """
+        from ..shift_db import get_all_roster_agents, get_shifts_for_date_range_bulk
+        from datetime import timedelta
+
+        roster_agents = get_all_roster_agents()
+        if not roster_agents:
+            return {}
+        
+        agent_ids = [a["agent_id"] for a in roster_agents]
+        agent_info = {a["agent_id"]: a for a in roster_agents}
+
+        # One DB query for all agents, all days, entire date range
+
+        all_shifts = get_shifts_for_date_range_bulk(agent_ids, start_date, end_date)
+
+        result = {}
+        cur = start_date
+        while cur <= end_date:
+            day_of_week = DayOfWeek.from_date(cur).value
+            rows = []
+            for agent_id in agent_ids:
+                agent = agent_info[agent_id]
+                #Find effective assignment for this specific date (list is newest-first)
+                assignments = all_shifts.get((agent_id, day_of_week), [])
+                shift_code = "OFF"
+                color = "#6B7280"
+                label = "No schedule"
+                for a in assignments:
+                    eff_start = a["effective_start"]
+                    eff_end = a["effective_end"]
+                    if isinstance(eff_start, str):
+                        eff_start = date.fromisoformat(eff_start)
+                    if eff_end and isinstance(eff_end, str):
+                        eff_end = date.fromisoformat(eff_end)
+                    if eff_start <= cur and (eff_end is None or eff_end >= cur):
+                        shift_code = a["shift_code"]
+                        break
+                
+                time_range = ScheduleProvider.shift_code_to_time_range(shift_code)
+                if time_range:
+                    start_t, end_t, crosses_midnight = time_range
+                else:
+                    start_t = end_t = None
+                    crosses_midnight = False
+                
+                rows.append({
+                    "agent_id": agent_id,
+                    "name": agent["full_name"],
+                    "lead": agent.get("lead", ""),
+                    "Shift": shift_code,
+                    "expected_start": start_t.strftime("%H:%M") if start_t else None,
+                    "expected_end": end_t.strftime("%H:%M") if end_t else None,
+                    "expected_start_t": start_t,
+                    "expected_end_t": end_t,
+                    "is_night": shift_code in ["S1", "S10"],
+                    "working_days": "",
+                    "days_off": "",
+                    "color": color,
+                    "shift_code": shift_code,
+                    "crosses_midnight": crosses_midnight,
+                })
+        
+            result[cur] = pd.DataFrame(rows)
+            cur += timedelta(days=1)
+        
+        return result

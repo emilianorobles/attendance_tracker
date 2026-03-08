@@ -408,13 +408,11 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                 "actual_end_t": aend,
             })
 
-    # Cache for schedule by date to avoid repeated lookups
-    schedule_cache: Dict[date, pd.DataFrame] = {}
-    
+    # Single bulk prefetch for the entire date range - replaces 31 DB queries with 1
+    schedule_cache = ScheduleProvider.get_schedule_cache_for_range(start, end)
+
     def get_schedule_cached(d: date) -> pd.DataFrame:
-        if d not in schedule_cache:
-            schedule_cache[d] = get_schedule_for_day(d)
-        return schedule_cache[d]
+        return schedule_cache.get(d, pd.DataFrame())
 
     # Collect all unique agents from all schedules in the date range
     all_agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> latest agent info

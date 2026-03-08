@@ -741,3 +741,35 @@ def get_all_roster_agents() -> List[Dict[str, Any]]:
 def get_active_agents_on_date(target_date: date) -> List[Dict[str, Any]]:
     """Get all agents who are active on the roster for a specific date."""
     return [a for a in get_all_agents() if get_agent_status_on_date(a["agent_id"], target_date) == 'Active']
+
+
+def get_shifts_for_date_range_bulk(agent_ids: list, start_date: date, end_date: date) -> dict:
+    """
+    Returns {(agent_id, day_of_week): [list of assignments, newest first]}
+    Single query covering the entire date range.
+    """
+    if not agent_ids:
+        return {}
+    with get_pg_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT agent_id, day_of_week, shift_code, effective_start, effective_end
+            FROM agent_shift_assignments
+            WHERE agent_id = ANY(%s)
+                AND effective_start <= %s
+                AND (effective_end IS NULL OR effective_end >= %s)
+            ORDER BY agent_id, day_of_week, effective_start DESC
+        """, (agent_ids, end_date.isoformat(), start_date.isoformat()))
+        rows = cur.fetchall()
+    
+    result = {}
+    for agent_id, day_of_week, shift_code, effective_start, effective_end in rows:
+        key = (agent_id, day_of_week)
+        if key not in result:
+            result[key] = []
+        result[key].append({
+            "shift_code": shift_code,
+            "effective_start": effective_start,
+            "effective_end": effective_end,
+        })
+    return result
