@@ -728,7 +728,7 @@ def get_agent_statuses_bulk(agent_ids: list, target_date: date) -> dict:
         rows = cur.fetchall()
     result = {r[0]: r[1] for r in rows}
 
-    for aid in agent_aids:
+    for aid in agent_ids:
         result.setdefault(aid, "Active")
     return result
     
