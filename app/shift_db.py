@@ -28,13 +28,13 @@ psycopg2 = None
 if DATABASE_URL:
     try:
         import psycopg2 as _psycopg2
+        from psycopg2 import pool as pg_pool
         psycopg2 = _psycopg2
         USE_POSTGRES = True
         PG_DSN = DATABASE_URL
     except ImportError:
         USE_POSTGRES = False
 
-from psycopg2 import pool as pg_pool
 
 _connection_pool: Optional[pg_pool.ThreadedConnectionPool] = None
 

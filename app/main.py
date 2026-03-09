@@ -15,7 +15,7 @@ from .routes.roster import router as roster_router
 from .schedules.api import router as schedules_router
 from .agents.api import router as agents_router
 from .shift_db import init_shift_tables, seed_shift_templates, sync_agents_from_csv
-from logic import invalidate_actuals_cache
+from .logic import invalidate_actuals_cache
 
 APP_TITLE = "Attendance"
 BASE_DIR = Path(__file__).resolve().parent.parent
