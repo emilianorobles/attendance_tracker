@@ -15,6 +15,7 @@ from .routes.roster import router as roster_router
 from .schedules.api import router as schedules_router
 from .agents.api import router as agents_router
 from .shift_db import init_shift_tables, seed_shift_templates, sync_agents_from_csv
+from logic import invalidate_actuals_cache
 
 APP_TITLE = "Attendance"
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +59,9 @@ def load_actuals():
 
     # Sync files from R2 on startup (before init_db)
     sync_from_r2()
+    
+    # Clear cache to reload with new data from R2
+    invalidate_actuals_cache()
 
     # Init DB
     init_db()

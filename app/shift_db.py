@@ -17,6 +17,7 @@ import contextlib
 
 from .storage import sync_db_to_r2
 
+
 # Database configuration
 DB_PATH = "attendance.db"
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -33,13 +34,27 @@ if DATABASE_URL:
     except ImportError:
         USE_POSTGRES = False
 
+from psycopg2 import pool as pg_pool
+
+_connection_pool: Optional[pg_pool.ThreadedConnectionPool] = None
+
+def _get_pool() -> pg_pool.ThreadedConnectionPool:
+    global _connection_pool
+    if _connection_pool is None or _connection_pool.closed:
+        dsn = os.environ.get("DATABASE_URL")
+        _connection_pool = pg_pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=5,
+            dsn=dsn,
+            sslmode="require",
+            connect_timeout=10
+        )
+    return _connection_pool
+
 @contextlib.contextmanager
 def get_pg_connection():
-    """Always opens a fresh connection and closes it when done."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("No DATABASE_URL configured")
-    conn = psycopg2.connect(dsn, sslmode="require", connect_timeout=10)
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
         yield conn
         if not conn.closed:
@@ -50,10 +65,12 @@ def get_pg_connection():
                 conn.rollback()
             except Exception:
                 pass
-        raise  # re-raise the original error
+        raise
     finally:
-        if not conn.closed:
-            conn.close()  # Always returned to pooler immediately
+        try:
+            pool.putconn(conn) # returns to pool, no SSL teardown
+        except Exception:
+            pass
 
 
 def _get_sqlite_connection():
@@ -381,7 +398,7 @@ def sync_agents_from_csv():
                             cur.execute("""INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""", (agent["agent_id"], day, day_shift, effective_date.isoformat(), ts, ts))
                     except Exception as e:
                         print(f"Error syncing agent {agent.get('agent_id')}: {e}")
-            
+            invalidate_roster_cache()
             print(f"Synced {len(csv_agents)} agents to PostgreSQL")
         else:
             con = _get_sqlite_connection()
@@ -498,6 +515,7 @@ def add_agent_to_roster(agent_id: str, full_name: str, lead: str, effective_date
         con.commit()
         con.close()
         sync_db_to_r2()
+        invalidate_roster_cache()
         return roster_id
 
 
@@ -517,6 +535,7 @@ def update_agent_lead(agent_id: str, new_lead: str, effective_date: date) -> boo
         con.commit()
         con.close()
         sync_db_to_r2()
+    invalidate_roster_cache()
     return True
 
 
@@ -551,6 +570,7 @@ def remove_agent_from_roster(agent_id: str, effective_date: date) -> bool:
         con.commit()
         con.close()
         sync_db_to_r2()
+    invalidate_roster_cache()
     return True
 
 
@@ -733,9 +753,38 @@ def get_agent_statuses_bulk(agent_ids: list, target_date: date) -> dict:
     return result
     
 
+_roster_agents_cache: Optional[List[Dict]] = None
+
 def get_all_roster_agents() -> List[Dict[str, Any]]:
-    """Alias for get_all_agents for backward compatibility."""
-    return get_all_agents()
+    global _roster_agents_cache
+    if _roster_agents_cache is not None:
+        return _roster_agents_cache
+    
+    try:
+        if USE_POSTGRES:
+            with get_pg_connection() as con:
+                cur = con.cursor()
+                cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+                rows = cur.fetchall()
+        
+        else:
+            con = _get_sqlite_connection()
+            cur = con.cursor()
+            cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+            rows = cur.fetchall()
+            con.close()
+        
+        _roster_agents_cache = [{"agent_id": r[0], "full_name": r[1], "lead": r[2]} for r in rows]
+    
+    except Exception as e:
+        print(f"Error fetching roster agents: {e}")
+        _roster_agents_cache = []
+    
+    return _roster_agents_cache
+
+def invalidate_roster_cache():
+    global _roster_agents_cache
+    _roster_agents_cache = None
 
 
 def get_active_agents_on_date(target_date: date) -> List[Dict[str, Any]]:

@@ -115,9 +115,18 @@ def get_valid_agent_ids() -> set:
     from .shift_db import get_all_roster_agent_ids
     return get_all_roster_agent_ids()
 
+_actuals_cache: Optional[pd.DataFrame] = None
+
 def get_actuals_df() -> pd.DataFrame:
-    """Relee actuals.csv en cada petición para reflejar cambios sin reiniciar."""
-    return load_actuals()
+    global _actuals_cache
+    if _actuals_cache is None:
+        _actuals_cache = load_actuals()
+    return _actuals_cache
+
+def invalidate_actuals_cache():
+    """Call this after R2 sync downloads a new actuals.csv"""
+    global _actuals_cache
+    _actuals_cache = None
 
 def expected_interval_for_day(agent_row: pd.Series, day: date) -> Optional[Tuple[datetime, datetime, bool]]:
     """
