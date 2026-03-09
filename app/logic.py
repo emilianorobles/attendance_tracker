@@ -111,9 +111,8 @@ def load_actuals() -> pd.DataFrame:
     return df
 
 def get_valid_agent_ids() -> set:
-    """Get set of valid agent IDs that still exist in the roster."""
-    from .shift_db import get_all_roster_agent_ids
-    return get_all_roster_agent_ids()
+    from .shift_db import get_all_roster_agents
+    return {a["agent_id"] for a in get_all_roster_agents()}
 
 _actuals_cache: Optional[pd.DataFrame] = None
 
@@ -394,28 +393,7 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
     """
     just_map = get_justifications_map(start, end)
 
-    # Index de actuals por (agent_id, date)
-    # If there are multiple connection rows per day, aggregate them taking
-    # the earliest start and the latest end so we don't miss delays.
-    actuals_idx: Dict[Tuple[str, date], pd.Series] = {}
-    df_act_all = get_actuals_df()
-    valid_agent_ids = get_valid_agent_ids()
-    df_act = df_act_all[df_act_all["agent_id"].isin(valid_agent_ids)].copy()
-    if not df_act.empty:
-        grp = df_act.groupby(["agent_id", "date"])
-        for (aid, d), g in grp:
-            # pick earliest non-null start and latest non-null end
-            starts = [v for v in g["actual_start_t"].tolist() if pd.notnull(v)]
-            ends = [v for v in g["actual_end_t"].tolist() if pd.notnull(v)]
-            astart = min(starts) if starts else None
-            aend = max(ends) if ends else None
-            # create a Series similar to original rows
-            actuals_idx[(str(aid), d)] = pd.Series({
-                "agent_id": str(aid),
-                "date": d,
-                "actual_start_t": astart,
-                "actual_end_t": aend,
-            })
+    actuals_idx = get_actuals_idx()
 
     # Single bulk prefetch for the entire date range - replaces 31 DB queries with 1
     schedule_cache = ScheduleProvider.get_schedule_cache_for_range(start, end)
@@ -423,30 +401,16 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
     def get_schedule_cached(d: date) -> pd.DataFrame:
         return schedule_cache.get(d, pd.DataFrame())
 
-    # Collect all unique agents from all schedules in the date range
-    all_agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> latest agent info
-    cur = start
-    while cur <= end:
-        sched = get_schedule_cached(cur)
-        for _, row in sched.iterrows():
-            aid = str(row["agent_id"])
-            # Always update with latest info (from latest schedule)
-            all_agents[aid] = {"name": row["name"], "lead": row["lead"]}
-        cur += timedelta(days=1)
+    from .shift_db import get_all_roster_agents
 
-    # Filter agents by lead/agent_id
+    # Build all_agents directly from cached roster - no day loop needed
+    roster = get_all_roster_agents()
+    all_agents = {a["agent_id"]: {"name": a["full_name"], "lead": a["lead"]} for a in roster}
+
     if lead:
         lead_lower = lead.strip().lower()
-        # Check if agent had this lead on ANY day in the date range
-        valid_agents = set()
-        cur = start
-        while cur <= end:
-            sched = get_schedule_cached(cur)
-            day_agents = set(sched[sched["lead"].str.lower() == lead_lower]["agent_id"].tolist())
-            valid_agents.update(day_agents)
-            cur += timedelta(days=1)
-        all_agents = {k: v for k, v in all_agents.items() if k in valid_agents}
-    
+        all_agents = {k: v for k, v in all_agents.items() if v["lead"].lower() == lead_lower}
+
     if agent_id:
         target_aid = str(agent_id).strip()
         all_agents = {k: v for k, v in all_agents.items() if k == target_aid}
@@ -526,3 +490,34 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
             })
 
     return {"agents": agents_out}
+
+_actuals_idx_cache: Optional[Dict] = None
+
+def get_actuals_idx() -> Dict:
+    global _actuals_idx_cache
+    if _actuals_idx_cache is not None:
+        return _actuals_idx_cache
+    
+    df = get_actuals_df()
+    valid_ids = get_valid_agent_ids()
+    df_filtered = df[df["agent_id"].isin(valid_ids)].copy()
+
+    idx = {}
+    if not df_filtered.empty:
+        for (aid, d), g in df_filtered.groupby(["agent_id", "date"]):
+            starts = [v for v in g["actual_start_t"].tolist() if pd.notnull(v)]
+            ends = [v for v in g["actual_end_t"].tolist() if pd.notnull(v)]
+            idx[(str(aid), d)] = pd.Series({
+                "agent_id": str(aid),
+                "date": d,
+                "actual_start_t": min(starts) if starts else None,
+                "actual_end_t": max(ends) if ends else None,
+            })
+    
+    _actuals_idx_cache = idx
+    return _actuals_idx_cache
+
+def invalidate_actuals_cache():
+    global _actuals_cache, _actuals_idx_cache
+    _actuals_cache = None
+    _actuals_idx_cache = None # <- also clear the idx cache
