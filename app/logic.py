@@ -238,7 +238,8 @@ def compute_day_status(
     agent_row: pd.Series,
     day: date,
     actual_row: Optional[pd.Series],
-    just_map: Dict[Tuple[str, date], Dict[str, Any]]
+    just_map: Dict[Tuple[str, date], Dict[str, Any]],
+    today: Optional[date] = None
 ) -> Dict[str, Any]:
     if today is None:
         today = date.today()
