@@ -518,3 +518,35 @@ async def export_schedules_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers
     )
+
+
+@router.post("/agents/restore")
+async def restore_agent(request: AddAgentRequest):
+    """
+    Re-add a previously deleted agent ID, removing it from the blocklist.
+    Use this when a new agent is assigned and ID that was previously used
+    by someone who was removed from the roster.
+    """
+    from ..shift_db import get_pg_connection, add_agent_to_roster
+
+    try:
+        eff_date = date.fromisoformat(request.effective_date)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {e}")
+    
+    try:
+        # Remove from blocklist first so the ID is clean
+        with get_pg_connection() as con:
+            cur = con.cursor()
+            cur.execute("DELETE FROM deleted_agents WHERE agent_id = %s", (request.agent_id,))
+        
+        # Add the new agent with this ID
+        roster_id = add_agent_to_roster(request.agent_id, request.full_name, request.lead, eff_date)
+        return {
+            "status": "restored",
+            "message": f"Agent {request.full_name} added with ID {request.agent_id} effective {eff_date}",
+            "id": roster_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    

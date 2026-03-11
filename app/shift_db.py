@@ -88,6 +88,14 @@ def init_shift_tables():
             cur = con.cursor()
             
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS deleted_agents (
+                    agent_id VARCHAR(20) PRIMARY KEY,
+                    deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    deleted_by TEXT
+                )
+            """)
+
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS shift_templates (
                     id SERIAL PRIMARY KEY,
                 shift_code VARCHAR(10) UNIQUE NOT NULL,
@@ -382,10 +390,20 @@ def sync_agents_from_csv():
         if USE_POSTGRES:
             with get_pg_connection() as con:
                 cur = con.cursor()
+
+                # Fetch deleted agents blocklist once
+                cur.execute("SELECT agent_id FROM deleted_agents")
+                deleted_ids = {row[0] for row in cur.fetchall()}
+                
                 for agent in csv_agents:
                     try:
                         if not agent["agent_id"]:
                             continue
+
+                        # Skip agents that have been manually removed
+                        if agent["agent_id"] in deleted_ids:
+                            continue
+                        
                         cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
                         cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
                         if cur.fetchone()[0] > 0:
@@ -558,6 +576,12 @@ def remove_agent_from_roster(agent_id: str, effective_date: date) -> bool:
             cur.execute("DELETE FROM agent_roster_status WHERE agent_id = %s", (agent_id,))
             # Delete from roster
             cur.execute("DELETE FROM agent_roster WHERE agent_id = %s", (agent_id,))
+            # Record in blocklist so CSV sync never re-adds this agent
+            cur.execute("""
+                INSERT INTO deleted_agents (agent_id, deleted_at)
+                VALUES (%s, %s)
+                ON CONFLICT (agent_id) DO NOTHING
+            """, (agent_id, datetime.now().isoformat()))
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
