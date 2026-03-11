@@ -144,6 +144,9 @@ def init_shift_tables():
         
             cur.execute("""CREATE INDEX IF NOT EXISTS idx_shift_assignments_lookup ON agent_shift_assignments(agent_id, day_of_week, effective_start)""")
             cur.execute("""CREATE INDEX IF NOT EXISTS idx_roster_status_lookup ON agent_roster_status(agent_id, effective_start)""")
+            cur.execute("""
+                ALTER TABLE agent_roster ADD COLUMN IF NOT EXISTS user_id VARCHAR(50) DEFAULT ''
+            """)
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
@@ -403,7 +406,7 @@ def sync_agents_from_csv():
                         # Skip agents that have been manually removed
                         if agent["agent_id"] in deleted_ids:
                             continue
-                        
+
                         cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
                         cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
                         if cur.fetchone()[0] > 0:
@@ -459,16 +462,16 @@ def get_all_agents() -> List[Dict[str, Any]]:
         if USE_POSTGRES:
             with get_pg_connection() as con:
                 cur = con.cursor()
-                cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+                cur.execute("SELECT agent_id, full_name, lead, COALESCE(user_id, '') FROM agent_roster ORDER BY full_name")
                 rows = cur.fetchall()
         else:
             con = _get_sqlite_connection()
             cur = con.cursor()
-            cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+            cur.execute("SELECT agent_id, full_name, lead, COALESCE(user_id, '') FROM agent_roster ORDER BY full_name")
             rows = cur.fetchall()
             con.close()
         
-        return [{"agent_id": r[0], "full_name": r[1], "lead": r[2]} for r in rows]
+        return [{"agent_id": r[0], "full_name": r[1], "lead": r[2], "user_id": r[3]} for r in rows]
     except Exception as e:
         print(f"Error fetching agents: {e}")
         return []
@@ -507,16 +510,28 @@ def get_agent_status_on_date(agent_id: str, target_date: date) -> str:
     return row[0] if row else 'Active'
 
 
-def add_agent_to_roster(agent_id: str, full_name: str, lead: str, effective_date: date) -> int:
-    """Add an agent to the roster and set as Active."""
+def add_agent_to_roster(agent_id: str, full_name: str, lead: str, effective_date: date, user_id: str = "") -> int:
+    """ Add an agent to the roster and set as Active."""
     ts = datetime.now().isoformat(timespec="seconds")
-    
+
     if USE_POSTGRES:
         with get_pg_connection() as con:
             cur = con.cursor()
-            cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead RETURNING id""", (agent_id, full_name, lead, ts))
+            cur.execute("""
+                INSERT INTO agent_roster (agent_id, full_name, lead, user_id, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (agent_id) DO UPDATE SET
+                    full_name = EXCLUDED.full_name,
+                    lead = EXCLUDED.lead,
+                    user_id = EXCLUDED.user_id
+                RETURNING id
+            """, (agent_id, full_name, lead, user_id, ts))
             roster_id = cur.fetchone()[0]
-            cur.execute("""INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (%s, 'Active', %s, %s)""", (agent_id, effective_date.isoformat(), ts))
+            cur.execute("""
+                INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at)
+                VALUES (%s, 'Active', %s, %s)
+            """, (agent_id, effective_date.isoformat(), ts))
+        invalidate_roster_cache()
         return roster_id
     else:
         con = _get_sqlite_connection()
@@ -524,12 +539,21 @@ def add_agent_to_roster(agent_id: str, full_name: str, lead: str, effective_date
         cur.execute("SELECT id FROM agent_roster WHERE agent_id = ?", (agent_id,))
         existing = cur.fetchone()
         if existing:
-            cur.execute("UPDATE agent_roster SET full_name = ?, lead = ? WHERE agent_id = ?", (full_name, lead, agent_id))
+            cur.execute(
+                "UPDATE agent_roster SET full_name = ?, lead = ?, user_id = ? WHERE agent_id = ?",
+                (full_name, lead, user_id, agent_id)
+            )
             roster_id = existing[0]
         else:
-            cur.execute("INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (?, ?, ?, ?)", (agent_id, full_name, lead, ts))
+            cur.execute(
+                "INSERT INTO agent_roster (agent_id, full_name, lead, user_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                (agent_id, full_name, lead, user_id, ts)
+            )
             roster_id = cur.lastrowid
-        cur.execute("INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (?, 'Active', ?, ?)", (agent_id, effective_date.isoformat(), ts))
+        cur.execute(
+            "INSERT INTO agent_roster_status (agent_id, status, effective_start, created_at) VALUES (?, 'Active', ?, ?)",
+            (agent_id, effective_date.isoformat(), ts)
+        )
         con.commit()
         con.close()
         sync_db_to_r2()
@@ -788,17 +812,17 @@ def get_all_roster_agents() -> List[Dict[str, Any]]:
         if USE_POSTGRES:
             with get_pg_connection() as con:
                 cur = con.cursor()
-                cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+                cur.execute("SELECT agent_id, full_name, lead, COALESCE(user_id, '') FROM agent_roster ORDER BY full_name")
                 rows = cur.fetchall()
         
         else:
             con = _get_sqlite_connection()
             cur = con.cursor()
-            cur.execute("SELECT agent_id, full_name, lead FROM agent_roster ORDER BY full_name")
+            cur.execute("SELECT agent_id, full_name, lead, COALESCE(user_id, '') FROM agent_roster ORDER BY full_name")
             rows = cur.fetchall()
             con.close()
         
-        _roster_agents_cache = [{"agent_id": r[0], "full_name": r[1], "lead": r[2]} for r in rows]
+        _roster_agents_cache = [{"agent_id": r[0], "full_name": r[1], "lead": r[2], "user_id": r[3]} for r in rows]
     
     except Exception as e:
         print(f"Error fetching roster agents: {e}")

@@ -59,6 +59,7 @@ class AddAgentRequest(BaseModel):
     full_name: str
     lead: str
     effective_date: str
+    user_id: str = ""
 
 
 class RemoveAgentRequest(BaseModel):
@@ -355,7 +356,8 @@ async def add_agent(request: AddAgentRequest):
             request.agent_id,
             request.full_name,
             request.lead,
-            eff_date
+            eff_date,
+            request.user_id
         )
         return {
             "status": "created",
@@ -541,7 +543,13 @@ async def restore_agent(request: AddAgentRequest):
             cur.execute("DELETE FROM deleted_agents WHERE agent_id = %s", (request.agent_id,))
         
         # Add the new agent with this ID
-        roster_id = add_agent_to_roster(request.agent_id, request.full_name, request.lead, eff_date)
+        roster_id = add_agent_to_roster(
+            request.agent_id,
+            request.full_name,
+            request.lead,
+            eff_date,
+            request.user_id
+        )
         return {
             "status": "restored",
             "message": f"Agent {request.full_name} added with ID {request.agent_id} effective {eff_date}",
@@ -549,4 +557,3 @@ async def restore_agent(request: AddAgentRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    

@@ -385,9 +385,9 @@
       <table id="rosterMatrix" style="margin: 0; min-width: 100%; border-collapse: collapse; font-size: 12px;">
         <thead id="rosterMatrixHead" style="position: sticky; top: 0; z-index: 10;">
           <tr style="background: #1a365d;">
-            <th style="position: sticky; left: 0; z-index: 12; background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600;">Employee ID</th>
-            <th style="position: sticky; left: 90px; z-index: 12; background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600;">User ID</th>
-            <th style="position: sticky; left: 170px; z-index: 12; background: #1a365d; min-width: 200px; padding: 8px 6px; color: #fff; font-weight: 600; text-align: left;">Full Name</th>
+            <th data-sort-col="agent_id" style="position: sticky; left: 0; z-index: 12; background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by Agent ID">Agent ID <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
+            <th data-sort-col="user_id" style="position: sticky; left: 90px; z-index: 12; background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by User ID">User ID <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
+            <th data-sort-col="full_name" style="position: sticky; left: 170px; z-index: 12; background: #1a365d; min-width: 200px; padding: 8px 6px; color: #fff; font-weight: 600; text-align: left; cursor: pointer; user-select: none;" title="Sort by Full Name">Full Name <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
             <th style="background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600;">Schedule</th>
             <th class="roster-day" data-day="Mon" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Mon</th>
             <th class="roster-day" data-day="Tue" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Tue</th>
@@ -396,8 +396,8 @@
             <th class="roster-day" data-day="Fri" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Fri</th>
             <th class="roster-day" data-day="Sat" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Sat</th>
             <th class="roster-day" data-day="Sun" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Sun</th>
-            <th style="background: #1a365d; min-width: 70px; padding: 8px 6px; color: #fff; font-weight: 600;">Lead</th>
-            <th style="background: #1a365d; min-width: 60px; padding: 8px 6px; color: #fff; font-weight: 600;">Actions</th>
+            <th data-sort-col="lead" style="background: #1a365d; min-width: 70px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by Lead">Lead <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
+            <th style="background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600;">Actions</th>
           </tr>
         </thead>
         <tbody id="rosterMatrixBody"></tbody>
@@ -446,29 +446,35 @@
 </dialog>
 
 <!-- Edit Lead Modal -->
-<dialog id="editLeadModal">
-  <div class="modal" style="min-width: 320px;">
-    <h3>👤 Edit Agent Lead</h3>
-    <p id="editLeadInfo" style="font-size: 13px; color: var(--muted); margin: 8px 0;"></p>
-    
+<dialog id="editAgentModal">
+  <div class="modal" style="min-width: 380px;">
+    <h3>✏️ Edit Agent</h3>
+    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">Update agent information. Agent ID cannot be changed here.</p>
+
     <div class="row">
-      <label>Agent</label>
-      <input id="editLeadAgent" readonly />
+      <label>Agent ID</label>
+      <input id="editAgentId" readonly style="opacity: 0.6;" />
+    </div>
+    <div class="row">
+      <label>User ID</label>
+      <input id="editAgentUserId" placeholder="e.g., jdoe" />
+    </div>
+    <div class="row">
+      <label>Full Name</label>
+      <input id="editAgentFullName" placeholder="e.g., John Doe" />
     </div>
     <div class="row">
       <label>Lead</label>
-      <select id="editLeadSelect" style="width: 100%;">
+      <select id="editAgentLead" style="width: 100%;">
         <!-- Options populated by JS -->
       </select>
     </div>
-    <div class="row">
-      <label>Effective Date</label>
-      <input id="editLeadEffectiveDate" type="date" title="Change will apply from this date" />
-    </div>
-    
+
+    <div id="editAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
+
     <footer>
-      <button class="btn" id="editLeadCancel">Cancel</button>
-      <button class="btn accent" id="editLeadSave">Save</button>
+      <button class="btn" id="editAgentCancel">Cancel</button>
+      <button class="btn accent" id="editAgentSave">Save</button>
     </footer>
   </div>
 </dialog>
@@ -484,6 +490,10 @@
     <div class="row">
       <label>Agent ID</label>
       <input id="addAgentId" placeholder="e.g., 10050" />
+    </div>
+    <div class="row">
+      <label>User ID</label>
+      <input id="addAgentUserId" placeholder="e.g., jdoe" />
     </div>
     <div class="row">
       <label>Full Name</label>
@@ -1185,6 +1195,8 @@
     let currentWeekStart = null;
     let rosterData = null;
     let shiftCatalog = {};
+    let rosterSortCol = 'full_name';
+    let rosterSortDir = 'asc';
     const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     
     // Get Monday of current week
@@ -1352,16 +1364,48 @@
     // Render the roster matrix
     function renderRosterMatrix() {
       if (!rosterData || !rosterData.agents || rosterData.agents.length === 0) {
-        rosterMatrixBody.innerHTML = '<tr><td colspan="13" style="text-align: center; color: var(--muted); padding: 20px;">No agents found for this period</td></tr>';
+        rosterMatrixBody.innerHTML = '<tr><td colspan="14" style="text-align: center; color: var(--muted); padding: 20px;">No agents found for this period</td></tr>';
         rosterSummary.textContent = 'Agents: 0';
         return;
       }
       
-      const html = rosterData.agents.map((agent, idx) => {
+      // Apply current sort
+      let agents = [...rosterData.agents];
+      if (rosterSortCol) {
+        agents.sort((a, b) => {
+          let aVal, bVal;
+          if (rosterSortCol === 'user_id') {
+            aVal = (a.user_id || '').toLowerCase();
+            bVal = (b.user_id || '').toLowerCase();
+          } else {
+            aVal = (a[rosterSortCol] || '').toString().toLowerCase();
+            bVal = (b[rosterSortCol] || '').toString().toLowerCase();
+          }
+          if (aVal < bVal) return rosterSortDir === 'asc' ? -1 : 1;
+          if (aVal > bVal) return rosterSortDir === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+      
+      // Update sort icons in header
+      document.querySelectorAll('#rosterMatrixHead th[data-sort-col]').forEach(th => {
+        const col = th.dataset.sortCol;
+        const icon = th.querySelector('.sort-icon');
+        if (!icon) return;
+        if (col === rosterSortCol) {
+          icon.textContent = rosterSortDir === 'asc' ? '↑' : '↓';
+          icon.style.opacity = '1';
+        } else {
+          icon.textContent = '↕';
+          icon.style.opacity = '0.6';
+        }
+      });
+      
+      const html = agents.map((agent, idx) => {
         const isInactive = agent.status === 'Inactive';
         const rowBg = idx % 2 === 0 ? 'var(--card)' : 'var(--even-row)';
         const rowStyle = isInactive ? 'opacity: 0.6;' : '';
-        const userId = generateUserId(agent.full_name);
+        const userId = agent.user_id || '';
         const schedule = getScheduleDisplay(agent);
         
         // Find primary shift color for schedule column
@@ -1408,10 +1452,13 @@
             <td style="position: sticky; left: 170px; background: ${rowBg}; z-index: 1; padding: 6px; text-align: left; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;" title="${agent.full_name}">${agent.full_name}</td>
             <td style="padding: 4px; background: ${scheduleColor}; color: ${primaryShift ? getShiftTextColor(primaryShift) : 'var(--muted)'}; font-weight: 600; font-size: 11px;">${schedule}</td>
             ${cellsHtml}
-            <td style="padding: 6px; cursor: pointer;" onclick="openEditLeadModal('${agent.agent_id}', '${agent.full_name}', '${agent.lead || ''}')" title="Click to edit lead">
+            <td style="padding: 6px;">
               <span style="padding: 2px 6px; background: var(--bg); border-radius: 4px; font-size: 11px;">${agent.lead || '—'}</span>
             </td>
-            <td style="padding: 4px;">
+            <td style="padding: 4px; white-space: nowrap;">
+              <button class="btn" style="padding: 3px 6px; font-size: 10px;"
+                      onclick="openEditAgentModal('${agent.agent_id}', '${agent.full_name}', '${agent.lead || ''}', '${agent.user_id || ''}')"
+                      title="Edit agent">✏️</button>
               <button class="btn" style="padding: 3px 6px; font-size: 10px; color: var(--unjust);" 
                       onclick="openRemoveAgentModal('${agent.agent_id}', '${agent.full_name}')"
                       title="Delete agent permanently">🗑️</button>
@@ -1488,6 +1535,20 @@
     document.getElementById('rosterLeadFilter').addEventListener('change', loadRosterMatrix);
     document.getElementById('rosterAgentFilter').addEventListener('change', loadRosterMatrix);
     document.getElementById('rosterStatusFilter').addEventListener('change', loadRosterMatrix);
+
+    // Sortable column headers
+    document.getElementById('rosterMatrixHead').addEventListener('click', (e) => {
+      const th = e.target.closest('th[data-sort-col]');
+      if (!th) return;
+      const col = th.dataset.sortCol;
+      if (rosterSortCol === col) {
+        rosterSortDir = rosterSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        rosterSortCol = col;
+        rosterSortDir = 'asc';
+      }
+      renderRosterMatrix();
+    });
     
     // Open modal
     document.getElementById('btnViewSchedules').addEventListener('click', () => {
@@ -1640,66 +1701,93 @@
     });
   })();
   
-  // === Edit Lead Modal ===
+  // === Edit Agent Modal ===
   (function() {
-    const editLeadModal = document.getElementById('editLeadModal');
-    
-    // Populate lead options
-    function populateLeadOptions(currentLead) {
-      const select = document.getElementById('editLeadSelect');
-      select.innerHTML = APP_OPTIONS.leads.map(l => 
+    const editAgentModal = document.getElementById('editAgentModal');
+
+    // Open modal
+    window.openEditAgentModal = function(agentId, agentName, currentLead, currentUserId) {
+      document.getElementById('editAgentId').value = agentId;
+      document.getElementById('editAgentFullName').value = agentName;
+      document.getElementById('editAgentUserId').value = currentUserId || '';
+      document.getElementById('editAgentStatus').textContent = '';
+
+      // Populate lead dropdown
+      const leadSelect = document.getElementById('editAgentLead');
+      leadSelect.innerHTML = APP_OPTIONS.leads.map(l =>
         `<option value="${l}" ${l === currentLead ? 'selected' : ''}>${l}</option>`
       ).join('');
-    }
-    
-    // Open modal
-    window.openEditLeadModal = function(agentId, agentName, currentLead) {
-      document.getElementById('editLeadAgent').value = `${agentName} (${agentId})`;
-      document.getElementById('editLeadInfo').textContent = `Change the lead assignment for this agent.`;
-      populateLeadOptions(currentLead);
-      // Set effective date to today
-      const today = new Date().toISOString().split('T')[0];
-      document.getElementById('editLeadEffectiveDate').value = today;
-      editLeadModal.dataset.agentId = agentId;
-      editLeadModal.showModal();
+
+      editAgentModal.dataset.agentId = agentId;
+      editAgentModal.showModal();
     };
-    
+
     // Cancel
-    document.getElementById('editLeadCancel').addEventListener('click', () => {
-      editLeadModal.close();
+    document.getElementById('editAgentCancel').addEventListener('click', () => {
+      editAgentModal.close();
     });
-    
-    // Save
-    document.getElementById('editLeadSave').addEventListener('click', async () => {
-      const agentId = editLeadModal.dataset.agentId;
-      const newLead = document.getElementById('editLeadSelect').value;
-      const effectiveDate = document.getElementById('editLeadEffectiveDate').value;
-      
-      if (!effectiveDate) {
-        alert('Please select an effective date');
+
+    // Save — updates full_name, user_id, and lead
+    document.getElementById('editAgentSave').addEventListener('click', async () => {
+      const agentId = editAgentModal.dataset.agentId;
+      const fullName = document.getElementById('editAgentFullName').value.trim();
+      const userId = document.getElementById('editAgentUserId').value.trim();
+      const newLead = document.getElementById('editAgentLead').value;
+      const statusEl = document.getElementById('editAgentStatus');
+
+      if (!fullName) {
+        statusEl.textContent = '❌ Full Name is required';
+        statusEl.style.color = 'var(--unjust)';
         return;
       }
-      
+
+      statusEl.textContent = '⏳ Saving...';
+      statusEl.style.color = 'var(--muted)';
+
       try {
-        const res = await fetch('/api/roster/agents/update-lead', {
+        const today = new Date().toISOString().split('T')[0];
+
+        // Upsert agent — updates full_name, lead, and user_id
+        const resName = await fetch('/api/roster/agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: agentId,
+            full_name: fullName,
+            lead: newLead,
+            user_id: userId,
+            effective_date: today
+          })
+        });
+        if (!resName.ok) {
+          const d = await resName.json();
+          throw new Error(d.detail || 'Failed to update agent');
+        }
+
+        // Also explicitly update lead via its dedicated endpoint
+        const resLead = await fetch('/api/roster/agents/update-lead', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             agent_id: agentId,
             new_lead: newLead,
-            effective_date: effectiveDate
+            effective_date: today
           })
         });
-        
-        const data = await res.json();
-        if (res.ok) {
-          editLeadModal.close();
-          window.loadRosterMatrix();
-        } else {
-          alert(`Error: ${data.detail || 'Failed to update lead'}`);
+        if (!resLead.ok) {
+          const d = await resLead.json();
+          throw new Error(d.detail || 'Failed to update lead');
         }
+
+        statusEl.textContent = '✅ Saved!';
+        statusEl.style.color = 'var(--ok)';
+        setTimeout(() => {
+          editAgentModal.close();
+          window.loadRosterMatrix();
+        }, 800);
       } catch (err) {
-        alert(`Error: ${err.message}`);
+        statusEl.textContent = `❌ ${err.message}`;
+        statusEl.style.color = 'var(--unjust)';
       }
     });
   })();
@@ -1740,6 +1828,7 @@
     // Open modal
     document.getElementById('btnAddAgent').addEventListener('click', () => {
       document.getElementById('addAgentId').value = '';
+      document.getElementById('addAgentUserId').value = '';
       document.getElementById('addAgentName').value = '';
       document.getElementById('addAgentEffectiveDate').value = window.formatDate(new Date());
       document.getElementById('addAgentStatus').textContent = '';
@@ -1760,6 +1849,7 @@
     document.getElementById('addAgentSave').addEventListener('click', async () => {
       const agentId = document.getElementById('addAgentId').value.trim();
       const fullName = document.getElementById('addAgentName').value.trim();
+      const userId = document.getElementById('addAgentUserId').value.trim();
       const lead = document.getElementById('addAgentLead').value;
       const effectiveDate = document.getElementById('addAgentEffectiveDate').value;
       const defaultShift = document.getElementById('addAgentDefaultShift').value;
@@ -1789,6 +1879,7 @@
             agent_id: agentId,
             full_name: fullName,
             lead: lead,
+            user_id: userId,
             effective_date: effectiveDate
           })
         });
