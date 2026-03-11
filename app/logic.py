@@ -15,22 +15,6 @@ CSV_ACTUALS = "actuals.csv"
 TOLERANCE_MINUTES = 2
 
 
-def _select_agent_row_for_day(agent_rows: pd.DataFrame, day: date) -> Optional[pd.Series]:
-    """Select the correct row for an agent on a specific day, considering multiple schedules."""
-    if agent_rows.empty:
-        return None
-    
-    # If only one row, return it regardless of working days/days off
-    # The status will be determined later in compute_day_status
-    if len(agent_rows) == 1:
-        return agent_rows.iloc[0]
-    
-    # Multiple rows - find the most appropriate one
-    # For now, just return the first one that exists for this agent
-    # The schedule versioning logic should handle which one is active
-    return agent_rows.iloc[0]
-
-
 def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     """
     Get the schedule that was effective on target_date.
@@ -256,34 +240,15 @@ def compute_day_status(
     actual_row: Optional[pd.Series],
     just_map: Dict[Tuple[str, date], Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """
-    Calcula estado del día y aplica override.
-      - '-' (pending) si el día es futuro (no ha pasado aún).
-      - Off 'O' si shift es OFF o no hay expected_start/expected_end.
-      - U si no hay registro en día laborable.
-      - A si late_minutes == 0; D si > 0.
-      - Tolerancia: si late_minutes <= TOLERANCE_MINUTES ⇒ A y late=0.
-      - Override permitido: A/J/V/U/D/H/C. Si override 'A' ⇒ late=0 (no suma).
-    Devuelve también:
-      - original_status (antes del override y tras aplicar tolerancia)
-      - is_overridden (True si hubo justificación/override)
-    
-    Note: This function now applies schedule overrides (from Edit Schedules feature)
-    before computing the status. OFF days are determined by shift_code="OFF" or missing times.
-    """
-    agent_id = agent_row["agent_id"]
-    
-    # Apply schedule overrides to get effective schedule for this day
-    effective_row = get_effective_schedule_for_agent(agent_id, day, agent_row)
-    
-    name = effective_row["name"]
-    lead = effective_row["lead"]
-    shift = effective_row.get("Shift", "")
-    shift_code = effective_row.get("shift_code", "")
-    
-    today = date.today()
-    
-    # Initialize variables
+    if today is None:
+        today = date.today()
+  
+    agent_id = str(agent_row["agent_id"])    
+    name = agent_row["name"]
+    lead = agent_row["lead"]
+    shift = agent_row.get("Shift", "")
+    shift_code = agent_row.get("shift_code", "")
+
     actual_start = ""
     actual_end = ""
     planned_start = ""
@@ -291,19 +256,14 @@ def compute_day_status(
     late_minutes = 0
     overtime_minutes = 0
 
-    # Future dates: default to pending status, but check for overrides below
     if day > today:
         original_status = "-"
-    # Base (estado original)
-    elif day <= today:
-        # Check if it's OFF day based on shift_code or missing times
-        exp_iv = expected_interval_for_day(effective_row, day)
-        
+    else:
+        exp_iv = expected_interval_for_day(agent_row, day)
+
         if shift_code == "OFF" or exp_iv is None:
-            # OFF day - no schedule expected
             original_status = "O"
         else:
-            # Working day with expected schedule
             exp_start, exp_end, is_night = exp_iv
             planned_start = exp_start.strftime("%H:%M")
             planned_end = exp_end.strftime("%H:%M")
@@ -317,42 +277,30 @@ def compute_day_status(
                 atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
                 salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
                 late_raw = atraso_entrada + salida_anticipada
-                overtime_minutes = max(0, int((exp_start - act_start).total_seconds() // 60)) + \
-                                   max(0, int((act_end - exp_end).total_seconds() // 60))
-                # ✔ tolerancia de 2 minutos
+                overtime_minutes = (
+                    max(0, int((exp_start - act_start).total_seconds() // 60)) +
+                    max(0, int((act_end - exp_end).total_seconds() // 60))
+                )
                 if late_raw <= TOLERANCE_MINUTES:
                     late_minutes = 0
                     original_status = "A"
                 else:
                     late_minutes = late_raw
                     original_status = "D"
-
+    
     status = original_status
     is_overridden = False
     tooltip = None
 
-    # Override (justificación/ajuste manual)
     override = just_map.get((agent_id, day))
     if override and override.get("type") in {"A", "J", "V", "U", "D", "H", "C", "ML"}:
-        # No aplicar override si el día original es día de descanso (O)
         if original_status == "O":
             status = original_status
             is_overridden = False
         else:
             is_overridden = True
             status = override["type"]
-            # Si el status original era 'D' y el override es distinto de 'D', se restan los minutos de atraso
-            if original_status == "D" and status != "D":
-                late_minutes = 0
-                overtime_minutes = 0
-                tooltip = None
-            elif status == "A":
-                # Fuerza día sin penalización
-                late_minutes = 0
-                overtime_minutes = 0
-                tooltip = None
-            elif status == "J":
-                # Día justificado: no penalización
+            if status in {"A", "J"} or (original_status == "D" and status != "D"):
                 late_minutes = 0
                 overtime_minutes = 0
                 tooltip = None
@@ -363,7 +311,7 @@ def compute_day_status(
     else:
         if status == "D":
             tooltip = f"Delay: {late_minutes} minutes"
-
+    
     return {
         "agent_id": agent_id,
         "name": name,
@@ -382,97 +330,77 @@ def compute_day_status(
         "is_overridden": is_overridden,
     }
 
-def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Optional[str], status_filter: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Agrega por agente:
-      - días (A/D/U/J/V/O)
-      - sumas: late_minutes, delays, vacations, justified, unjustified
-      - justified_delays_sum: cuenta días originalmente D que terminaron A o J por override
-    
-    Uses versioned schedules: for each day, looks up the schedule that was effective on that date.
-    """
-    just_map = get_justifications_map(start, end)
 
-    actuals_idx = get_actuals_idx()
-
-    # Single bulk prefetch for the entire date range - replaces 31 DB queries with 1
-    schedule_cache = ScheduleProvider.get_schedule_cache_for_range(start, end)
-
-    def get_schedule_cached(d: date) -> pd.DataFrame:
-        return schedule_cache.get(d, pd.DataFrame())
-
+def build_attendance(start, end, lead, agent_id, status_filter=None):
     from .shift_db import get_all_roster_agents
 
-    # Build all_agents directly from cached roster - no day loop needed
+    just_map = get_justifications_map(start, end)
+    actuals_idx = get_actuals_idx()
+    today = date.today()
+
+    # Hoist status filter parsing
+    allowed_statuses = None
+    if status_filter is not None:
+        allowed_statuses = {s.strip().upper() for s in str(status_filter).split(",") if s.strip()}
+
+    # Single bulk DB fetch for entire date range
+    schedule_cache = ScheduleProvider.get_schedule_cache_for_range(start, end)
+
+    # Pre-index by agent_id for 0(1) lookups
+    schedule_by_agent: Dict[str, Dict[date, pd.Series]] = {}
+    for d, df in schedule_cache.items():
+        if df.empty:
+            continue
+        for _, row in df.iterrows():
+            aid_key = str(row["agent_id"])
+            if aid_key not in schedule_by_agent:
+                schedule_by_agent[aid_key] = {}
+            schedule_by_agent[aid_key][d] = row
+    
+    # Build agent list from cache
     roster = get_all_roster_agents()
     all_agents = {a["agent_id"]: {"name": a["full_name"], "lead": a["lead"]} for a in roster}
 
     if lead:
         lead_lower = lead.strip().lower()
         all_agents = {k: v for k, v in all_agents.items() if v["lead"].lower() == lead_lower}
-
     if agent_id:
-        target_aid = str(agent_id).strip()
-        all_agents = {k: v for k, v in all_agents.items() if k == target_aid}
-
+        all_agents = {k: v for k, v in all_agents.items() if k == str(agent_id).strip()}
+    
     agents_out = []
     for aid, agent_info in all_agents.items():
         days = []
-        late_sum = delays = vacations = justified = unjustified = justified_delays_sum = holidays = comp_days = medical_leaves = 0
+        late_sum = delays = vacations = justified = unjustified = \
+            justified_delays_sum = holidays = comp_days = medical_leaves = 0
         cur = start
-        
-        # normalize status_filter: accept comma-separated, case-insensitive
-        allowed_statuses = None
-        if status_filter is not None:
-            allowed_statuses = {s.strip().upper() for s in str(status_filter).split(",") if s.strip()}
 
         while cur <= end:
-            # Get schedule for this specific day
-            day_sched = get_schedule_cached(cur)
-            agent_rows = day_sched[day_sched["agent_id"] == aid]
-            
-            arow = _select_agent_row_for_day(agent_rows, cur)
+            arow = schedule_by_agent.get(aid, {}).get(cur) # 0(1)
             if arow is None:
-                # Agent not in schedule for this day - skip
                 cur += timedelta(days=1)
                 continue
-            arow_actual = actuals_idx.get((aid, cur))
-            item = compute_day_status(arow, cur, arow_actual, just_map)
-            
-            # Match only the current visible status (after overrides)
-            match = True
-            if allowed_statuses is not None:
-                match = item["status"].upper() in allowed_statuses
 
+            arow_actual = actuals_idx.get((aid, cur))
+            item = compute_day_status(arow, cur, arow_actual, just_map, today)
+
+            match = allowed_statuses is None or item["status"].upper() in allowed_statuses
             if match:
                 days.append(item)
-
-                # Suma de minutos tarde (post-override y post-tolerancia)
                 late_sum += item["late_minutes"]
-
-                # Contadores por estado mostrado (post-override)
-                if item["status"] == "D":
-                    delays += 1
-                elif item["status"] == "V":
-                    vacations += 1
-                elif item["status"] == "J":
-                    justified += 1
-                elif item["status"] == "U":
-                    unjustified += 1
-                elif item["status"] == "H":
-                    holidays += 1
-                elif item["status"] == "C":
-                    comp_days += 1
-                elif item["status"] == "ML":
-                    medical_leaves += 1
-
-                # Justified delays: originalmente D y ahora A o J
-                if item["original_status"] == "D" and item["status"] in {"A", "J"}:
+                s = item["status"]
+                if s == "D": delays += 1
+                elif s == "V": vacations += 1
+                elif s == "J": justified += 1
+                elif s == "U": unjustified += 1
+                elif s == "H": holidays += 1
+                elif s == "C": comp_days += 1
+                elif s == "ML": medical_leaves += 1
+                if item["original_status"] == "D" and s in {"A", "J"}:
                     justified_delays_sum += 1
-
+            
             cur += timedelta(days=1)
-
-        if days:  # Only include agents with matching days
+        
+        if days:
             agents_out.append({
                 "agent_id": aid,
                 "name": agent_info["name"],
@@ -488,7 +416,7 @@ def build_attendance(start: date, end: date, lead: Optional[str], agent_id: Opti
                 "comp_days_sum": comp_days,
                 "medical_leaves_sum": medical_leaves,
             })
-
+    
     return {"agents": agents_out}
 
 _actuals_idx_cache: Optional[Dict] = None
