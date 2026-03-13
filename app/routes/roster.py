@@ -38,6 +38,26 @@ from datetime import datetime as _datetime
 _LA_TZ = ZoneInfo("America/Los_Angeles")
 _PST_OFFSET_HOURS = -8 # Baseline: times are stored as PST
 
+def _reload_shift_catalog():
+    """
+    Reload SHIFT_CATALOG from DB after template edits so that
+    ScheduleProvider picks up new times without a server restart.
+    Also invalidates the actuals index cache so attendance recalculates.
+    """
+    from ..models.shifts import SHIFT_CATALOG
+    from ..logic import invalidate_actuals_cache
+    templates = get_all_shift_templates()
+    SHIFT_CATALOG.clear()
+    for t in templates:
+        SHIFT_CATALOG[t["shift_code"]] = {
+            "start": t["start_time"],
+            "end": t["end_time"],
+            "crosses_midnight": t["crosses_midnight"],
+            "color": t["color"],
+            "label": t.get("label", t["shift_code"]),
+        }
+    invalidate_actuals_cache()
+
 def _dst_shift_time(time_str: str) -> str:
     """
     Shift a naive PST time string forward by the current DST delta.
@@ -186,6 +206,7 @@ async def create_shift_template(request: ShiftTemplateRequest):
             request.shift_code, request.start_time, request.end_time,
             request.crosses_midnight, request.color, label
         )
+        _reload_shift_catalog()
         return {"status": "created", "shift_code": request.shift_code}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -205,6 +226,7 @@ async def update_shift_template_endpoint(shift_code: str, request: ShiftTemplate
             shift_code, request.start_time, request.end_time,
             request.crosses_midnight, request.color, label
         )
+        _reload_shift_catalog()
         return {"status": "updated", "shift_code": shift_code}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -218,6 +240,7 @@ async def delete_shift_template_endpoint(shift_code: str):
     
     success = delete_shift_template(shift_code)
     if success:
+        _reload_shift_catalog()
         return {"status": "deleted", "shift_code": shift_code}
     else:
         raise HTTPException(status_code=400, detail=f"Cannot delete {shift_code} - it is currently assigned to agents")

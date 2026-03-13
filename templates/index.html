@@ -562,14 +562,14 @@
 
 <!-- Manage Shift Templates Modal -->
 <dialog id="manageShiftsModal">
-  <div class="modal" style="min-width: 600px; max-width: 700px;">
+  <div class="modal" style="min-width: 680px; max-width: 780px;">
     <h3>⚙️ Manage Shift Templates</h3>
     <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
       Add, edit or remove shift categories. Changes will apply to new assignments.
     </p>
     
     <!-- Existing Shifts Table -->
-    <div style="max-height: 300px; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px;">
+    <div style="max-height: 300px; overflow-y: auto; overflow-x: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px; min-width: 0;">
       <table style="width: 100%; font-size: 12px; margin: 0;">
         <thead style="position: sticky; top: 0; background: var(--card);">
           <tr>
@@ -2019,6 +2019,42 @@
     });
   })();
 
+  // Mirror of Python _dst_shift_time — shifts a stored PST time string
+  // forward by the current DST delta (0 in PST, +60min in PDT).
+  // Used to display correct local times in the Manage Shifts modal.
+  function dstShiftTime(timeStr) {
+    if (!timeStr || timeStr === '—') return timeStr;
+    // Detect current LA UTC offset from the browser
+    // LA is UTC-8 in PST, UTC-7 in PDT
+    const now = new Date();
+    const laOffset = -new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
+    // PST baseline is UTC-8 = -480 minutes from UTC, but getTimezoneOffset returns local->UTC
+    // Simpler: just check if LA is currently observing DST
+    const janOffset = -new Date(new Date(now.getFullYear(), 0, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
+    const julOffset = -new Date(new Date(now.getFullYear(), 6, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
+    const isDST = laOffset > Math.min(janOffset, julOffset);
+    const delta = isDST ? 60 : 0; // minutes
+    if (delta === 0) return timeStr;
+    const [h, m] = timeStr.split(':').map(Number);
+    const total = (h * 60 + m + delta) % (24 * 60);
+    return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+  }
+
+  function dstUnshiftTime(timeStr) {
+    // Reverse: convert a DST-adjusted time back to stored PST for saving
+    if (!timeStr || timeStr === '—') return timeStr;
+    const now = new Date();
+    const laOffset = -new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
+    const janOffset = -new Date(new Date(now.getFullYear(), 0, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
+    const julOffset = -new Date(new Date(now.getFullYear(), 6, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
+    const isDST = laOffset > Math.min(janOffset, julOffset);
+    const delta = isDST ? -60 : 0;
+    if (delta === 0) return timeStr;
+    const [h, m] = timeStr.split(':').map(Number);
+    const total = ((h * 60 + m + delta) % (24 * 60) + 24 * 60) % (24 * 60);
+    return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+  }
+
   // === Manage Shift Templates Modal ===
   (function() {
     const modal = document.getElementById('manageShiftsModal');
@@ -2055,23 +2091,26 @@
     
     // Render templates table
     function renderTemplates() {
-      tbody.innerHTML = shiftTemplates.map(t => `
+      tbody.innerHTML = shiftTemplates.map(t => {
+        const dispStart = t.shift_code !== 'OFF' ? dstShiftTime(t.start_time) : '—';
+        const dispEnd   = t.shift_code !== 'OFF' ? dstShiftTime(t.end_time)   : '—';
+        return `
         <tr>
           <td style="padding: 6px; font-weight: 600;">${t.shift_code}</td>
-          <td style="padding: 6px;">${t.start_time || '—'}</td>
-          <td style="padding: 6px;">${t.end_time || '—'}</td>
+          <td style="padding: 6px;">${dispStart || '—'}</td>
+          <td style="padding: 6px;">${dispEnd   || '—'}</td>
           <td style="padding: 6px; text-align: center;">
             <span style="display: inline-block; width: 24px; height: 24px; background: ${t.color}; border-radius: 4px;"></span>
           </td>
           <td style="padding: 6px; text-align: center;">${t.crosses_midnight ? '✓' : ''}</td>
-          <td style="padding: 6px; text-align: center;">
+          <td style="padding: 6px; text-align: center; white-space: nowrap;">
             ${t.shift_code !== 'OFF' ? `
               <button class="btn" style="padding: 2px 6px; font-size: 10px;" onclick="editShiftTemplate('${t.shift_code}')">✏️</button>
               <button class="btn" style="padding: 2px 6px; font-size: 10px; color: var(--unjust);" onclick="deleteShiftTemplate('${t.shift_code}')">🗑️</button>
             ` : '<span style="color: var(--muted); font-size: 10px;">System</span>'}
           </td>
-        </tr>
-      `).join('');
+        </tr>`;
+      }).join('');
     }
     
     // Reset form
@@ -2098,8 +2137,8 @@
       formTitle.textContent = `✏️ Edit Shift: ${code}`;
       codeInput.value = code;
       codeInput.disabled = true;
-      startInput.value = template.start_time || '';
-      endInput.value = template.end_time || '';
+      startInput.value = dstShiftTime(template.start_time) || '';  // ← DST-adjusted
+      endInput.value   = dstShiftTime(template.end_time)   || '';  // ← DST-adjusted
       colorInput.value = template.color || '#3B82F6';
       colorHex.textContent = template.color || '#3B82F6';
       midnightCheck.checked = template.crosses_midnight || false;
@@ -2144,8 +2183,8 @@
       
       const payload = {
         shift_code: code,
-        start_time: start,
-        end_time: end,
+        start_time: dstUnshiftTime(start),
+        end_time: dstUnshiftTime(end),
         color: color,
         crosses_midnight: crosses
       };
