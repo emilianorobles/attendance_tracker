@@ -74,6 +74,22 @@ def local_today() -> date:
     return datetime.now(LOCAL_TZ).date()
 
 
+def dst_shift_for_date(day: date) -> timedelta:
+    """
+    Returns timedelta(hours=1) when LA is in DST (PDT) on the given date,
+    timedelta(0) otherwise.
+    
+    Mexico has no DST so agents work fixed local hours year-round.
+    When LA springs forward in March, TASKE-recorded times shift +1h relative
+    to the stored schedule times. Shifting the planned window by the same amount
+    keeps the comparison correct without touching any stored schedule data.
+    """
+    dt = datetime(day.year, day.month, day.day, 12, tzinfo=LOCAL_TZ)
+    # PST = UTC-8, PDT = UTC-7
+    is_dst = dt.utcoffset().total_seconds() == -7 * 3600
+    return timedelta(hours=1) if is_dst else timedelta(0)
+
+
 def get_schedule_for_day(target_date: date) -> pd.DataFrame:
     """
     Get the schedule that was effective on target_date.
@@ -182,7 +198,14 @@ def expected_interval_for_day(agent_row: pd.Series, day: date) -> Optional[Tuple
     start_dt = datetime.combine(day, start_t, tzinfo=LOCAL_TZ)
     end_dt = datetime.combine(day, end_t, tzinfo=LOCAL_TZ)
     if end_dt <= start_dt:
-        end_dt = end_dt + timedelta(days=1)
+        end_dt += timedelta(days=1)
+    
+    # Shift planned window when LA is in DST - Mexico doesn't observe DST so
+    # agents connect 1h later in LA time after the spring-forward transition.
+    shift = dst_shift_for_date(day)
+    start_dt += shift
+    end_dt += shift
+    
     return start_dt, end_dt, bool(agent_row["is_night"])
 
 
