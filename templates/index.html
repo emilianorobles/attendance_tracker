@@ -1585,7 +1585,7 @@
     
     // Shift options are populated dynamically when modal opens
     // so they always reflect the current DST-adjusted times from shiftCatalog
-    function buildShiftOptions(selectE1, selectedValue) {
+    window.buildShiftOptions = function(selectE1, selectedValue) {
       const catalog = (window._shiftCatalog && Object.keys(window._shiftCatalog).length > 0)
         ? window._shiftCatalog
         : null;
@@ -2019,21 +2019,29 @@
     });
   })();
 
-  // Mirror of Python _dst_shift_time — shifts a stored PST time string
-  // forward by the current DST delta (0 in PST, +60min in PDT).
-  // Used to display correct local times in the Manage Shifts modal.
+  function _isLAdst() {
+    // Correctly detect if America/Los_Angeles is currently on DST
+    // by comparing its UTC offset in January (always PST) vs right now
+    const now = new Date();
+    const jan = new Date(now.getFullYear(), 0, 15); // mid-January, always PST
+
+    function getLAOffsetMinutes(d) {
+      // Parse what LA's local time is for date d, then compute offset from UTC
+      const laStr = d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const laDate = new Date(laStr);
+      return (d.getTime() - laDate.getTime()) / 60000;
+    }
+
+    const janOffset = getLAOffsetMinutes(jan); // 480 in PST
+    const nowOffset = getLAOffsetMinutes(now); // 420 in PDT, 480 in PST
+    return nowOffset < janOffset; // true if currently PDT
+  }
+
   function dstShiftTime(timeStr) {
     if (!timeStr || timeStr === '—') return timeStr;
-    // Detect current LA UTC offset from the browser
-    // LA is UTC-8 in PST, UTC-7 in PDT
-    const now = new Date();
-    const laOffset = -new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
-    // PST baseline is UTC-8 = -480 minutes from UTC, but getTimezoneOffset returns local->UTC
-    // Simpler: just check if LA is currently observing DST
-    const janOffset = -new Date(new Date(now.getFullYear(), 0, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
-    const julOffset = -new Date(new Date(now.getFullYear(), 6, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
-    const isDST = laOffset > Math.min(janOffset, julOffset);
-    const delta = isDST ? 60 : 0; // minutes
+    const delta = _isLAdst() ? 60 : 0;
     if (delta === 0) return timeStr;
     const [h, m] = timeStr.split(':').map(Number);
     const total = (h * 60 + m + delta) % (24 * 60);
@@ -2041,14 +2049,8 @@
   }
 
   function dstUnshiftTime(timeStr) {
-    // Reverse: convert a DST-adjusted time back to stored PST for saving
     if (!timeStr || timeStr === '—') return timeStr;
-    const now = new Date();
-    const laOffset = -new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
-    const janOffset = -new Date(new Date(now.getFullYear(), 0, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
-    const julOffset = -new Date(new Date(now.getFullYear(), 6, 1).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })).getTimezoneOffset();
-    const isDST = laOffset > Math.min(janOffset, julOffset);
-    const delta = isDST ? -60 : 0;
+    const delta = _isLAdst() ? -60 : 0;
     if (delta === 0) return timeStr;
     const [h, m] = timeStr.split(':').map(Number);
     const total = ((h * 60 + m + delta) % (24 * 60) + 24 * 60) % (24 * 60);
