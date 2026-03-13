@@ -64,11 +64,13 @@ def _apply_dst_to_matrix(matrix: dict) -> dict:
     if "shift_catalog" in matrix:
         adjusted_catalog = {}
         for code, info in matrix["shift_catalog"].items():
-            if code == "OFF" or not info.get("start_time"):
-                adjusted_catalog[code] = info
+            raw_start = info.get("start_time") or info.get("start")
+            raw_end = info.get("end_time") or info.get("end")
+            if code == "OFF" or not raw_start:
+                adjusted_catalog[code] = {**info, "start_time": raw_start, "end_time": raw_end}
                 continue
-            new_start = _dst_shift_time(info["start_time"])
-            new_end = _dst_shift_time(info["end_time"])
+            new_start = _dst_shift_time(raw_start)
+            new_end = _dst_shift_time(raw_end)
             adjusted_catalog[code] = {
                 **info,
                 "start_time": new_start,

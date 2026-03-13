@@ -1245,8 +1245,8 @@
         templates = Object.entries(shiftCatalog).map(([code, info]) => ({
           shift_code: code,
           color: info.color,
-          start_time: info.start_time,
-          end_time: info.end_time
+          start_time: info.start_time || info.start,
+          end_time: info.end_time ||info.end
         }));
       }
       
