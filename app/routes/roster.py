@@ -32,6 +32,67 @@ from ..shift_db import (
 )
 from ..models.shifts import SHIFT_CATALOG, DayOfWeek
 
+from zoneinfo import ZoneInfo
+from datetime import datetime as _datetime
+
+_LA_TZ = ZoneInfo("America/Los_Angeles")
+_PST_OFFSET_HOURS = -8 # Baseline: times are stored as PST
+
+def _dst_shift_time(time_str: str) -> str:
+    """
+    Shift a naive PST time string forward by the current DST delta.
+    During PDT (UTC-7): adds 1 hour. During PST (UTC-8): no change.
+    Handles midnight rollover (e.g. 23:30 + 1h -> 00:30).
+    """
+    if not time_str:
+        return time_str
+    current_offset = int(_datetime.now(_LA_TZ).utcoffset().total_seconds() / 3600)
+    delta = current_offset - _PST_OFFSET_HOURS # 0 in PST, +1 in PDT
+    if delta == 0:
+        return time_str
+    h, m = map(int, time_str.split(":"))
+    total = (h * 60 + m + delta * 60) % (24 * 60)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+def _apply_dst_to_matrix(matrix: dict) -> dict:
+    """
+    Post-process a roster matrix response to apply current DST offset
+    to all displayed shift times (labels, start_time, end_time).
+    The stored data is never modified - only the API response is adjusted.
+    """
+    # Adjust the shift_catalog labels and times
+    if "shift_catalog" in matrix:
+        adjusted_catalog = {}
+        for code, info in matrix["shift_catalog"].items():
+            if code == "OFF" or not info.get("start_time"):
+                adjusted_catalog[code] = info
+                continue
+            new_start = _dst_shift_time(info["start_time"])
+            new_end = _dst_shift_time(info["end_time"])
+            adjusted_catalog[code] = {
+                **info,
+                "start_time": new_start,
+                "end_time": new_end,
+                "label": f"{code} ({new_start}-{new_end})",
+            }
+        matrix["shift_catalog"] = adjusted_catalog
+    
+    # Adjust per-agent per-day start_time/end_time/label if present
+    for agent in matrix.get("agents", []):
+        for day, cell in agent.get("days", {}).items():
+            if not cell or cell.get("shift_code") == "OFF":
+                continue
+            if cell.get("start_time"):
+                cell["start_time"] = _dst_shift_time(cell["start_time"])
+            if cell.get("end_time"):
+                cell["end_time"] = _dst_shift_time(cell["end_time"])
+            if cell.get("label") and "-" in cell["label"]:
+                # Rebuild label from adjusted times
+                code = cell.get("shift_code", "")
+                cell["label"] = f"{code} ({cell['start_time']}-{cell['end_time']})"
+    
+    return matrix
+
 router = APIRouter(prefix="/api/roster", tags=["roster"])
 
 
@@ -198,7 +259,7 @@ async def get_matrix(
         raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
     
     matrix = get_roster_matrix(start, lead, agent_id, status)
-    return matrix
+    return _apply_dst_to_matrix(matrix)
 
 
 @router.get("/week")
@@ -218,7 +279,7 @@ async def get_week_matrix(
         raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
     
     matrix = get_roster_matrix(start, lead, agent_id, status)
-    return matrix
+    return _apply_dst_to_matrix(matrix)
 
 
 @router.post("/assignment")
