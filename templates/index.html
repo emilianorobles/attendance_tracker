@@ -1245,8 +1245,8 @@
         templates = Object.entries(shiftCatalog).map(([code, info]) => ({
           shift_code: code,
           color: info.color,
-          start_time: info.start,
-          end_time: info.end
+          start_time: info.start_time,
+          end_time: info.end_time
         }));
       }
       
@@ -1311,6 +1311,7 @@
         
         rosterData = await res.json();
         shiftCatalog = rosterData.shift_catalog || {};
+        window._shiftCatalog = shiftCatalog;
         
         buildLegend();
         renderRosterMatrix();
@@ -1439,7 +1440,7 @@
                    data-day="${day}"
                    title="${tooltip}"
                    onclick="openEditShiftModal('${agent.agent_id}', '${agent.full_name}', '${day}', '${shiftCode}')">
-                ${shiftCode || '—'}
+                ${shiftCode === 'OFF' ? 'OFF' : shiftCode === '' ? '-' : (dayData.start_time || shiftCode)}
               </div>
             </td>
           `;
@@ -1583,9 +1584,25 @@
     const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const SHIFTS = ['OFF', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'];
     
-    // Build shift selector options
-    const shiftOptions = SHIFTS.map(s => `<option value="${s}">${s}</option>`).join('');
-    document.getElementById('editShiftCode').innerHTML = shiftOptions;
+    // Shift options are populated dynamically when modal opens
+    // so they always reflect the current DST-adjusted times from shiftCatalog
+    function buildShiftOptions(selectE1, selectedValue) {
+      const catalog = (window._shiftCatalog && Object.keys(window._shiftCatalog).length > 0)
+        ? window._shiftCatalog
+        : null;
+      const options = SHIFTS.map(s => {
+        let label = s;
+        if (catalog && catalog[s]) {
+          const info = catalog[s];
+          label = s === 'OFF'
+            ? 'OFF - Day Off'
+            : `${s} — ${info.start_time || ''}–${info.end_time || ''}`;
+        }
+        const sel = s === selectedValue ? 'selected' : '';
+        return `<option value="${s}" ${sel}>${label}</option>`;
+      });
+      selectE1.innerHTML = options.join('');
+    }
     
     // Build day checkboxes
     const dayCheckboxes = DAYS.map(d => `
@@ -1612,8 +1629,8 @@
       document.getElementById('editShiftAgent').value = `${agentId} — ${agentName}`;
       document.getElementById('editShiftInfo').textContent = `Editing shift for ${day}`;
       
-      // Select current shift
-      document.getElementById('editShiftCode').value = currentShift || 'OFF';
+      // Build options with DST-adjusted labels, pre-select current shift
+      buildShiftOptions(document.getElementById('editShiftCode'), currentShift || 'OFF');
       
       // Set effective date to Monday of current week
       const weekStart = window.currentWeekStart ? window.currentWeekStart() : new Date();
@@ -1798,9 +1815,10 @@
     const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const SHIFTS = ['OFF', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'];
     
-    // Build shift selector
-    document.getElementById('addAgentDefaultShift').innerHTML = SHIFTS.map(s => `<option value="${s}">${s}</option>`).join('');
-    document.getElementById('addAgentDefaultShift').value = 'S4';
+    // Shift selector - populated dynamically when modal opens to get DST-adjusted labels
+    function refreshAddShiftOptions() {
+      buildShiftOptions(document.getElementById('addAgentDefaultShift'), 'S4');
+    }
     
     // Build working days checkboxes
     const dayCheckboxes = DAYS.map(d => {
@@ -1827,6 +1845,7 @@
     
     // Open modal
     document.getElementById('btnAddAgent').addEventListener('click', () => {
+      refreshAddShiftOptions();
       document.getElementById('addAgentId').value = '';
       document.getElementById('addAgentUserId').value = '';
       document.getElementById('addAgentName').value = '';
