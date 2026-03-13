@@ -1429,7 +1429,7 @@
           if (dayData.start_time && dayData.end_time) {
             tooltipParts.push(`Hours: ${dayData.start_time} - ${dayData.end_time}`);
           }
-          const tooltip = tooltipParts.join('\\n');
+          const tooltip = tooltipParts.join('\n');
           
           return `
             <td style="padding: 2px;">
@@ -1554,7 +1554,6 @@
     // Open modal
     document.getElementById('btnViewSchedules').addEventListener('click', () => {
       initFilters();
-      buildLegend();
       schedulesViewModal.showModal();
       loadRosterMatrix();
     });

@@ -110,6 +110,12 @@ def index(request: Request):
         "default_end": end.isoformat()
     })
 
+@app.head("/")
+def index_head():
+    """Health check endpoint for Render's uptime monitoring."""
+    from fastapi import Response
+    return Response()
+
 # @app.get("/", response_class=HTMLResponse)
 # def index(request: Request):
 #     return templates.TemplateResponse("test.html", {"request": request})
