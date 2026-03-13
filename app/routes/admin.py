@@ -130,7 +130,7 @@ async def upload_actuals(
         "ok": True,
         "message": f"Merged {len(new_df)} rows for {len(new_dates)} date(s) into actuals successfully",
         "new_rows": len(new_df),
-        "dates_updated": sorter(new_dates),
+        "dates_updated": sorted(new_dates),
         "total_rows": len(merged_df),
         "r2_synced": r2_synced,
     }

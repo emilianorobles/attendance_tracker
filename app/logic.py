@@ -1,6 +1,8 @@
 import pandas as pd
+import os
 from datetime import datetime, date, time, timedelta
 from typing import Optional, Dict, Any, Tuple, List
+from zoneinfo import ZoneInfo
 
 
 from .utils import parse_hhmm_or_hhmmss, weekday_token, weekday_short, parse_days_list
@@ -13,6 +15,63 @@ from .providers.schedule_provider import ScheduleProvider
 
 CSV_ACTUALS = "actuals.csv"
 TOLERANCE_MINUTES = 2
+
+def _is_midnight_cut(t) -> bool:
+    """True when TASKE records 23:59:59 - meaning 'still connected at midnight'."""
+    return t is not None and t.hour == 23 and t.minute == 59 and t.second == 59
+
+
+def compute_night_shift_seconds(
+        exp_start: datetime,
+        exp_end: datetime,
+        actual_row: Optional[pd.Series],
+        next_day_actual_row: Optional[pd.Series],
+        day: date,
+) -> int:
+    """
+    Calculate total seconds the agent was connected within the expected night shift window.
+
+    Night shift cross midnight so TASKE splits them across two calendar rows:
+        - Row on shift date D:  start=21:30, end=23:59:59 (midnight cut)
+        - Row on date D+1:      start=0:00,  end=05:00    (continuation)
+    
+    When an agent never logs off between consecutive nights, TASKE chain rows
+    across multiple days (0:00:00 -> 23:59:59 for entire days). Window intersection
+    correctly attributes exactly 7.5h to each shift regardless of chain length.
+    """
+    total = 0
+    next_day = day + timedelta(days=1)
+
+    def _interval_overlap(row_date: date, row: pd.Series) -> int:
+        start_t = row["actual_start_t"]
+        end_t = row["actual_end_t"]
+        if start_t is None or end_t is None:
+            return 0
+        act_start = datetime.combine(row_date, start_t, tzinfo=LOCAL_TZ)
+        act_end = datetime.combine(row_date, end_t, tzinfo=LOCAL_TZ)
+        if act_end <= act_start:
+            act_end += timedelta(days=1)
+        overlap_start = max(act_start, exp_start)
+        overlap_end = min(act_end, exp_end)
+        return max(0, int((overlap_end - overlap_start).total_seconds()))
+    
+    if actual_row is not None:
+        total += _interval_overlap(day, actual_row)
+    
+    if next_day_actual_row is not None:
+        total += _interval_overlap(next_day, next_day_actual_row)
+    
+    return total
+
+# All schedule and actuals data is in LA time (PST/PDT).
+# This ensures PDT transitions and date boundaries are handled correctly
+# regardless of what timezone the Render server runs in (UTC).
+LOCAL_TZ = ZoneInfo(os.environ.get("APP_TZ", "America/Los_Angeles"))
+
+def local_today() -> date:
+    """Today's date in LA time - prevents UTC server from returning
+    tomorrow's date during evening/night hours in Pacific time."""
+    return datetime.now(LOCAL_TZ).date()
 
 
 def get_schedule_for_day(target_date: date) -> pd.DataFrame:
@@ -120,8 +179,8 @@ def expected_interval_for_day(agent_row: pd.Series, day: date) -> Optional[Tuple
     end_t = agent_row["expected_end_t"]
     if not start_t or not end_t:
         return None
-    start_dt = datetime.combine(day, start_t)
-    end_dt = datetime.combine(day, end_t)
+    start_dt = datetime.combine(day, start_t, tzinfo=LOCAL_TZ)
+    end_dt = datetime.combine(day, end_t, tzinfo=LOCAL_TZ)
     if end_dt <= start_dt:
         end_dt = end_dt + timedelta(days=1)
     return start_dt, end_dt, bool(agent_row["is_night"])
@@ -228,8 +287,8 @@ def actual_interval_for_day(actual_row: Optional[pd.Series], day: date, is_night
     aend_t = actual_row["actual_end_t"]
     if not astart_t or not aend_t:
         return None
-    astart_dt = datetime.combine(day, astart_t)
-    aend_dt = datetime.combine(day, aend_t)
+    astart_dt = datetime.combine(day, astart_t, tzinfo=LOCAL_TZ)
+    aend_dt = datetime.combine(day, aend_t, tzinfo=LOCAL_TZ)
     if aend_dt <= astart_dt:
         aend_dt = aend_dt + timedelta(days=1)
     return astart_dt, aend_dt
@@ -239,10 +298,11 @@ def compute_day_status(
     day: date,
     actual_row: Optional[pd.Series],
     just_map: Dict[Tuple[str, date], Dict[str, Any]],
-    today: Optional[date] = None
+    today: Optional[date] = None,
+    next_day_actual_row: Optional[pd.Series] = None,
 ) -> Dict[str, Any]:
     if today is None:
-        today = date.today()
+        today = local_today()
   
     agent_id = str(agent_row["agent_id"])    
     name = agent_row["name"]
@@ -268,26 +328,68 @@ def compute_day_status(
             exp_start, exp_end, is_night = exp_iv
             planned_start = exp_start.strftime("%H:%M")
             planned_end = exp_end.strftime("%H:%M")
-            act_iv = actual_interval_for_day(actual_row, day, is_night)
-            if act_iv is None:
-                original_status = "U"
-            else:
-                act_start, act_end = act_iv
-                actual_start = act_start.strftime("%H:%M")
-                actual_end = act_end.strftime("%H:%M")
-                atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
-                salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
-                late_raw = atraso_entrada + salida_anticipada
-                overtime_minutes = (
-                    max(0, int((exp_start - act_start).total_seconds() // 60)) +
-                    max(0, int((act_end - exp_end).total_seconds() // 60))
+            
+            if is_night:
+                # - Night shift: duration-based rule -
+                # TASKE splits night shifts at midnight. We measure total seconds
+                # the agent was connected within the expected shift window using
+                # both today's row and tomorrow's row (the continuation segment).
+                expected_secs = int((exp_end - exp_start).total_seconds())
+                night_secs = compute_night_shift_seconds(
+                    exp_start, exp_end, actual_row, next_day_actual_row, day
                 )
-                if late_raw <= TOLERANCE_MINUTES:
-                    late_minutes = 0
+
+                if night_secs == 0:
+                    original_status = "U"
+                elif night_secs >= expected_secs - (TOLERANCE_MINUTES * 60):
                     original_status = "A"
+                    overtime_minutes = max(0, (night_secs - expected_secs) // 60)
                 else:
-                    late_minutes = late_raw
+                    late_minutes = (expected_secs - night_secs) // 60
                     original_status = "D"
+                
+                # Display: show real start from today's row; real end from wherever
+                # the shift actually ended (next day's row if shift was midnight-split)
+                if actual_row is not None:
+                    act_iv = actual_interval_for_day(actual_row, day, is_night)
+                    if act_iv:
+                        actual_start = act_iv[0].strftime("%H:%M")
+                        # If today's row ends at 23:59 (midnight cut) and we have a
+                        # next-day row with a real end time, show that as actual_end
+                        today_end_t = actual_row.get("actual_end_t")
+                        if (_is_midnight_cut(today_end_t)
+                                and next_day_actual_row is not None
+                                and not _is_midnight_cut(next_day_actual_row.get("actual_end_t"))):
+                            next_end_t = next_day_actual_row["actual_end_t"]
+                            if next_end_t:
+                                actual_end = next_end_t.strftime("%H:%M")
+                            else:
+                                actual_end = act_iv[1].strftime("%H:%M")
+                        else:
+                            actual_end = act_iv[1].strftime("%H:%M")
+            
+            else:
+                # - Day / afternoon shift: standard start+end time comparison -
+                act_iv = actual_interval_for_day(actual_row, day, is_night)
+                if act_iv is None:
+                    original_status = "U"
+                else:
+                    act_start, act_end = act_iv
+                    actual_start = act_start.strftime("%H:%M")
+                    actual_end = act_end.strftime("%H:%M")
+                    atraso_entrada = max(0, int((act_start - exp_start).total_seconds() // 60))
+                    salida_anticipada = max(0, int((exp_end - act_end).total_seconds() // 60))
+                    late_raw = atraso_entrada + salida_anticipada
+                    overtime_minutes = (
+                        max(0, int((exp_start - act_start).total_seconds() // 60))
+                        + max(0, int((act_end - exp_end).total_seconds() // 60))
+                    )
+                    if late_raw <= TOLERANCE_MINUTES:
+                        late_minutes = 0
+                        original_status = "A"
+                    else:
+                        late_minutes = late_raw
+                        original_status = "D"
     
     status = original_status
     is_overridden = False
@@ -337,7 +439,7 @@ def build_attendance(start, end, lead, agent_id, status_filter=None):
 
     just_map = get_justifications_map(start, end)
     actuals_idx = get_actuals_idx()
-    today = date.today()
+    today = local_today()
 
     # Hoist status filter parsing
     allowed_statuses = None
@@ -382,7 +484,12 @@ def build_attendance(start, end, lead, agent_id, status_filter=None):
                 continue
 
             arow_actual = actuals_idx.get((aid, cur))
-            item = compute_day_status(arow, cur, arow_actual, just_map, today)
+            # For night shifts, also fetch the next calendar day's actual row -
+            # the shift crosses midnight so TASKE records it across two dates.
+            next_arow_actual = None
+            if arow is not None and arow.get("is_night"):
+                next_arow_actual = actuals_idx.get((aid, cur + timedelta(days=1)))
+            item = compute_day_status(arow, cur, arow_actual, just_map, today, next_arow_actual)
 
             match = allowed_statuses is None or item["status"].upper() in allowed_statuses
             if match:
