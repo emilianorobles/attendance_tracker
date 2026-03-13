@@ -53,24 +53,21 @@ async def upload_actuals(
 ):
     """Upload a new actuals.csv file.
 
-    Usage:
-        POST /admin/upload-actuals
-        Form data: token=<ADMIN_PASSWORD>, file=<actuals.csv>
-
-    Replaces the existing actuals.csv with the uploaded file.
+    Merges the uploaded rows into the existing actuals.csv - existing rows for
+    dates not in the upload are preserved. Rows for dates present in the upload
+    are replaced with the new data. Cache is invalidated immediately so changes
+    are visible without a restart.
     """
     if token != ADMIN_PASSWORD:
         raise HTTPException(status_code=403, detail="Invalid password")
 
-    # Validate file extension
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv file")
 
-    # Read and validate content (check for expected columns)
+    # Read and validate uploaded content
     try:
         content = await file.read()
-        # Decode and check header
-        text = content.decode("utf-8")
+        text = content.decode("utf-8-sig") # utf-8-sig strips BOM if present
         lines = text.strip().split("\n")
         if not lines:
             raise HTTPException(status_code=400, detail="File is empty")
@@ -86,22 +83,55 @@ async def upload_actuals(
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
 
-    # Backup existing file if it exists
-    if ACTUALS_PATH.exists():
-        backup_path = ACTUALS_PATH.with_suffix(".csv.bak")
-        shutil.copy2(ACTUALS_PATH, backup_path)
-
-    # Write new file
-    with open(ACTUALS_PATH, "wb") as f:
-        f.write(content)
-
-    # Sync to R2 for persistence across dyno restarts
-    r2_synced = sync_actuals_to_r2()
+    # Parse uploaded CSV
+    try:
+        new_df = pd.read_csv(StringIO(text))
+        new_df.columns = new_df.columns.str.strip()
+        new_df["agent_id"] = new_df["agent_id"].astype(str).str.strip()
+        new_df["date"] = new_df["date"].astype(str).str.strip()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse uploaded CSV: {e}")
     
+    # Determine which dates are covered by the new upload
+    new_dates = set(new_df["date"].unique())
+
+    # Load existing actuals and drop rows for those dates (they'll be replaced)
+    if ACTUALS_PATH.exists():
+        try:
+            existing_df = pd.read_csv(ACTUALS_PATH, encoding="utf-8-sig")
+            existing_df.columns = existing_df.columns.str.strip()
+            existing_df["agent_id"] = existing_df["agent_id"].astype(str).str.strip()
+            existing_df["date"] = existing_df["date"].astype(str).str.strip()
+            # Keep only rows whose dates are NOT in the new upload
+            existing_df = existing_df[~existing_df["date"].isin(new_dates)]
+        except Exception:
+            existing_df = pd.DataFrame()
+    else:
+        existing_df = pd.DataFrame()
+    
+    # Merge: old rows (excluding replaced dates) + all new rows
+    merged_df = pd.concat([existing_df, new_df], ignore_index=True)
+
+    # Backup existing file before overwriting
+    if ACTUALS_PATH.exists():
+        shutil.copy2(ACTUALS_PATH, ACTUALS_PATH.with_suffix(".csv.bak"))
+    
+    # Write merged result back to disk
+    merged_df.to_csv(ACTUALS_PATH, index=False)
+
+    # Sync merged file to R2 for persistence across restarts
+    r2_synced = sync_actuals_to_r2()
+
+    # Invalidate in-memory cache so changes are visible immediately
+    from ..logic import invalidate_actuals_cache
+    invalidate_actuals_cache()
+
     return {
         "ok": True,
-        "message": f"Uploaded {file.filename} successfully",
-        "rows": len(lines) - 1,
+        "message": f"Merged {len(new_df)} rows for {len(new_dates)} date(s) into actuals successfully",
+        "new_rows": len(new_df),
+        "dates_updated": sorter(new_dates),
+        "total_rows": len(merged_df),
         "r2_synced": r2_synced,
     }
 
