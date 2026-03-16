@@ -1704,12 +1704,13 @@
           });
         }
         
-        const data = await res.json();
+        const text = await res.text();
+        const data = (() => { try { return JSON.parse(text); } catch { return { detail: text }; } })();
         if (res.ok) {
           editShiftModal.close();
           window.loadRosterMatrix();
         } else {
-          alert(`Error: ${data.detail || 'Failed to update shift'}`);
+          alert(`Error: ${data.detail || text || 'Failed to update shift'}`);
         }
       } catch (err) {
         alert(`Error: ${err.message}`);
