@@ -633,7 +633,7 @@ def get_shifts_for_agents_bulk(agent_ids: list, start_date, end_date) -> dict:
     with get_pg_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT agent_id, day_of_week, shift_code, effective_start, effective_end 
+            SELECT id, agent_id, day_of_week, shift_code, effective_start, effective_end 
             FROM agent_shift_assignments 
             WHERE agent_id = ANY(%s) AND effective_start <= %s AND (effective_end IS NULL OR effective_end >= %s)
             ORDER BY effective_start DESC
@@ -641,10 +641,10 @@ def get_shifts_for_agents_bulk(agent_ids: list, start_date, end_date) -> dict:
         rows = cur.fetchall()
 
     result = {}
-    for agent_id, day_of_week, shift_code, effective_start, effective_end in rows:
+    for row_id, agent_id, day_of_week, shift_code, effective_start, effective_end in rows:
         key = (agent_id, day_of_week)
         if key not in result:
-            result[key] = {"shift_code": shift_code, "effective_start": effective_start, "effective_end": effective_end}
+            result[key] = {"id": row_id, "shift_code": shift_code, "effective_start": effective_start, "effective_end": effective_end}
     return result
 
 
