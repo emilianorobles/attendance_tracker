@@ -318,11 +318,12 @@ async def update_shift_assignment(request: ShiftAssignmentRequest):
     - Creates new assignment with effective_start = effective_date
     - If same shift already exists and is active, returns no_change
     """
-    # Validate shift code
-    if request.shift_code not in SHIFT_CATALOG:
+    # Validate shift code against DB (not static catalog, so new shifts are accepted)
+    valid_shifts = [t["shift_code"] for t in get_all_shift_templates()]
+    if request.shift_code not in valid_shifts:
         raise HTTPException(
             status_code=400, 
-            detail=f"Invalid shift code: {request.shift_code}. Valid codes: {list(SHIFT_CATALOG.keys())}"
+            detail=f"Invalid shift code: {request.shift_code}. Valid codes: {valid_shifts}"
         )
     
     # Validate day of week
@@ -354,11 +355,12 @@ async def update_bulk_shift_assignment(request: BulkShiftAssignmentRequest):
     Update multiple days at once for an agent.
     Example: Set Tue+Wed+Thu to S3 effective from a date.
     """
-    # Validate shift code
-    if request.shift_code not in SHIFT_CATALOG:
+    # Validate shift code against DB (not static catalog, so new shifts are accepted)
+    valid_shifts = [t["shift_code"] for t in get_all_shift_templates()]
+    if request.shift_code not in valid_shifts:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid shift code: {request.shift_code}"
+            detail=f"Invalid shift code: {request.shift_code}. Valid codes: {valid_shifts}"
         )
     
     # Validate days
