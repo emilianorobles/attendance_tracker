@@ -71,6 +71,8 @@ def load_actuals():
         init_shift_tables()
         seed_shift_templates()
         sync_agents_from_csv()
+        from .routes.roster import _reload_shift_catalog
+        _reload_shift_catalog()
         print("Initialized shift roster tables and synced agents.")
     except Exception as e:
         print(f"Error initializing shift tables: {e}")
