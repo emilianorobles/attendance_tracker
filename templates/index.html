@@ -1589,13 +1589,17 @@
       const catalog = (window._shiftCatalog && Object.keys(window._shiftCatalog).length > 0)
         ? window._shiftCatalog
         : null;
-      const options = SHIFTS.map(s => {
+      // Always derive the list from the catalog so newly added shifts appear automatically
+      const shiftKeys = catalog
+        ? ['OFF', ...Object.keys(catalog).filter(s => s !== 'OFF').sort()]
+        : ['OFF', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'];
+      const options = shiftKeys.map(s => {
         let label = s;
         if (catalog && catalog[s]) {
           const info = catalog[s];
           label = s === 'OFF'
             ? 'OFF - Day Off'
-            : `${s} — ${info.start_time || ''}–${info.end_time || ''}`;
+            : `${s} — ${dstShiftTime(info.start_time || info.start || '')}–${dstShiftTime(info.end_time || info.end || '')}`;
         }
         const sel = s === selectedValue ? 'selected' : '';
         return `<option value="${s}" ${sel}>${label}</option>`;
