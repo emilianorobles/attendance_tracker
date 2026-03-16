@@ -407,7 +407,7 @@ def sync_agents_from_csv():
                         if agent["agent_id"] in deleted_ids:
                             continue
 
-                        cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO UPDATE SET full_name = EXCLUDED.full_name, lead = EXCLUDED.lead""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
+                        cur.execute("""INSERT INTO agent_roster (agent_id, full_name, lead, created_at) VALUES (%s, %s, %s, %s) ON CONFLICT (agent_id) DO NOTHING""", (agent["agent_id"], agent["full_name"], agent["lead"], ts))
                         cur.execute("SELECT COUNT(*) FROM agent_shift_assignments WHERE agent_id = %s", (agent["agent_id"],))
                         if cur.fetchone()[0] > 0:
                             continue
@@ -785,6 +785,7 @@ def get_roster_matrix(week_start: date, lead_filter = None, agent_filter = None,
             "agent_id": agent["agent_id"],
             "full_name": agent["full_name"],
             "lead": agent["lead"],
+            "user_id": agent.get("user_id", ""),
             "status": get_agent_status_on_date(agent["agent_id"], week_start),
             "days": {}
         }
