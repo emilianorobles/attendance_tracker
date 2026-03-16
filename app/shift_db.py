@@ -649,39 +649,78 @@ def get_shifts_for_agents_bulk(agent_ids: list, start_date, end_date) -> dict:
 
 
 def upsert_shift_assignment(agent_id: str, day_of_week: str, shift_code: str, effective_date: date) -> Dict[str, Any]:
+    """Create or update a shift assignment with effective dating."""
     ts = datetime.now().isoformat(timespec="seconds")
-    
-    print(f"[upsert] agent={agent_id} day={day_of_week} shift={shift_code} eff={effective_date}")
-    current = get_shifts_for_agents_bulk([agent_id], effective_date, effective_date).get((agent_id, day_of_week))
-    print(f"[upsert] current found: {current}")
-    
-    if current and current["shift_code"] == shift_code:
-        print(f"[upsert] no_change — already {shift_code}")
-        return {"status": "no_change", "message": f"Agent {agent_id} already has {shift_code} on {day_of_week}", "assignment_id": current["id"]}
-    
+
     if USE_POSTGRES:
         with get_pg_connection() as con:
             cur = con.cursor()
-            if current:
-                prev_end = effective_date - timedelta(days=1)
-                print(f"[upsert] closing record id={current['id']} with effective_end={prev_end}")
-                cur.execute("UPDATE agent_shift_assignments SET effective_end = %s, updated_at = %s WHERE id = %s", (prev_end.isoformat(), ts, current["id"]))
-            cur.execute("INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id", (agent_id, day_of_week, shift_code, effective_date.isoformat(), ts, ts))
+
+            # Find the current active (open-ended) assignment
+            cur.execute("""
+                SELECT id, shift_code FROM agent_shift_assignments
+                WHERE agent_id = %s AND day_of_week = %s AND effective_end IS NULL
+                ORDER BY effective_start DESC LIMIT 1
+            """, (agent_id, day_of_week))
+            active = cur.fetchone()
+
+            # No change needed if already this shift
+            if active and active[1] == shift_code:
+                print(f"[upsert] no_change — already {shift_code}")
+                return {"status": "no_change", "message": f"Agent {agent_id} already has {shift_code} on {day_of_week}", "assignment_id": active[0]}
+
+            # Close ALL open-ended records for this agent+day
+            prev_end = effective_date - timedelta(days=1)
+            cur.execute("""
+                UPDATE agent_shift_assignments
+                SET effective_end = %s, updated_at = %s
+                WHERE agent_id = %s AND day_of_week = %s AND effective_end IS NULL
+            """, (prev_end.isoformat(), ts, agent_id, day_of_week))
+            closed_count = cur.rowcount
+            print(f"[upsert] closed {closed_count} open record(s) for {agent_id}/{day_of_week}")
+
+            # Insert new assignment
+            cur.execute("""
+                INSERT INTO agent_shift_assignments
+                    (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (agent_id, day_of_week, shift_code, effective_date.isoformat(), ts, ts))
             new_id = cur.fetchone()[0]
             print(f"[upsert] inserted new record id={new_id}")
     else:
         con = _get_sqlite_connection()
         cur = con.cursor()
-        if current:
-            prev_end = effective_date - timedelta(days=1)
-            cur.execute("UPDATE agent_shift_assignments SET effective_end = ?, updated_at = ? WHERE id = ?", (prev_end.isoformat(), ts, current["id"]))
-        cur.execute("INSERT INTO agent_shift_assignments (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (agent_id, day_of_week, shift_code, effective_date.isoformat(), ts, ts))
+        cur.execute("""
+            SELECT id, shift_code FROM agent_shift_assignments
+            WHERE agent_id = ? AND day_of_week = ? AND effective_end IS NULL
+            ORDER BY effective_start DESC LIMIT 1
+        """, (agent_id, day_of_week))
+        active = cur.fetchone()
+        if active and active[1] == shift_code:
+            con.close()
+            return {"status": "no_change", "message": f"Agent {agent_id} already has {shift_code} on {day_of_week}", "assignment_id": active[0]}
+        prev_end = effective_date - timedelta(days=1)
+        cur.execute("""
+            UPDATE agent_shift_assignments
+            SET effective_end = ?, updated_at = ?
+            WHERE agent_id = ? AND day_of_week = ? AND effective_end IS NULL
+        """, (prev_end.isoformat(), ts, agent_id, day_of_week))
+        cur.execute("""
+            INSERT INTO agent_shift_assignments
+                (agent_id, day_of_week, shift_code, effective_start, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (agent_id, day_of_week, shift_code, effective_date.isoformat(), ts, ts))
         new_id = cur.lastrowid
         con.commit()
         con.close()
         sync_db_to_r2()
-    
-    return {"status": "created", "message": f"Created {shift_code} for {agent_id} on {day_of_week} effective {effective_date}", "assignment_id": new_id, "previous_closed": current["id"] if current else None}
+
+    return {
+        "status": "created",
+        "message": f"Created {shift_code} for {agent_id} on {day_of_week} effective {effective_date}",
+        "assignment_id": new_id
+    }
 
 
 def bulk_upsert_shift_assignments(agent_id: str, days_of_week: List[str], shift_code: str, effective_date: date) -> List[Dict[str, Any]]:
