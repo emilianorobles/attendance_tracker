@@ -362,7 +362,37 @@ def compute_day_status(
                     exp_start, exp_end, actual_row, next_day_actual_row, day
                 )
 
-                if night_secs == 0:
+                if night_secs == 0 and actual_row is not None:
+                    # No overlap with the evening window — check for a "tail-only session":
+                    # the last working day before days off only contains the morning tail
+                    # (00:00 → exp_end.time()) which is the completion of the PREVIOUS
+                    # night's shift, not the start of a new one.
+                    start_t = actual_row["actual_start_t"]
+                    end_t = actual_row["actual_end_t"]
+                    if start_t is not None and end_t is not None:
+                        tail_end_dt = datetime.combine(day, exp_end.time(), tzinfo=LOCAL_TZ)
+                        tail_start_dt = datetime.combine(day, time(0, 0, 0), tzinfo=LOCAL_TZ)
+                        tail_expected_secs = int((tail_end_dt - tail_start_dt).total_seconds())
+                        act_s = datetime.combine(day, start_t, tzinfo=LOCAL_TZ)
+                        act_e = datetime.combine(day, end_t, tzinfo=LOCAL_TZ)
+                        if act_e <= act_s:
+                            act_e += timedelta(days=1)
+                        tail_overlap = max(0, int(
+                            (min(act_e, tail_end_dt) - max(act_s, tail_start_dt)).total_seconds()
+                        ))
+                        actual_start = act_s.strftime("%H:%M")
+                        actual_end = min(act_e, tail_end_dt).strftime("%H:%M")
+                        if tail_overlap >= tail_expected_secs - (TOLERANCE_MINUTES * 60):
+                            original_status = "A"
+                            late_minutes = 0
+                        elif tail_overlap > 0:
+                            late_minutes = max(0, (tail_expected_secs - tail_overlap) // 60)
+                            original_status = "D"
+                        else:
+                            original_status = "U"
+                    else:
+                        original_status = "U"
+                elif night_secs == 0:
                     original_status = "U"
                 elif night_secs >= expected_secs - (TOLERANCE_MINUTES * 60):
                     original_status = "A"
@@ -373,7 +403,7 @@ def compute_day_status(
                 
                 # Display: show real start from today's row; real end from wherever
                 # the shift actually ended (next day's row if shift was midnight-split)
-                if actual_row is not None:
+                if actual_row is not None and not actual_start:
                     act_iv = actual_interval_for_day(actual_row, day, is_night)
                     if act_iv:
                         actual_start = act_iv[0].strftime("%H:%M")
