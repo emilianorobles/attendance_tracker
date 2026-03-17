@@ -670,3 +670,19 @@ async def debug_assignments(agent_id: str):
         {"id": r[0], "day": r[1], "shift": r[2], "eff_start": str(r[3]), "eff_end": str(r[4])}
         for r in rows
     ]}
+
+
+@router.post("/debug/fix-sergio-sat-sun")
+async def fix_sergio_sat_sun():
+    """One-time fix: close orphaned S4 records for agent 10048 Sat/Sun."""
+    from ..shift_db import get_pg_connection
+    with get_pg_connection() as con:
+        cur = con.cursor()
+        # Close the S4 Sat record so S3 (eff_start=2025-12-01) takes over
+        cur.execute("""
+            UPDATE agent_shift_assignments
+            SET effective_end = '2025-11-30'
+            WHERE id IN (209, 210)
+        """)
+        affected = cur.rowcount
+    return {"status": "fixed", "rows_updated": affected}
