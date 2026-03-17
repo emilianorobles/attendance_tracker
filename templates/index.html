@@ -183,8 +183,8 @@
     .ovr { box-shadow: 0 0 0 2px rgba(255,255,255,.25) inset, 0 0 6px rgba(255,255,255,.15); filter: brightness(1.15); }
     td { cursor:pointer; }
     .summary { margin-top:8px; font-size:13px; color:var(--muted); }
-    dialog { border:none; padding:0; }
-    .modal { background: var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; min-width:300px; color: var(--text); }
+    dialog { border:none; padding:0; background: transparent; }
+    .modal { background: var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; min-width:300px; color: var(--text); }
     .modal h3 { margin:0 0 8px 0; }
     .modal .row { display:grid; grid-template-columns: 1fr 2fr; gap:8px; margin-top:8px; }
     .modal input, .modal select, .modal textarea { padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--input-bg); color:var(--text); }
@@ -630,6 +630,424 @@
     </footer>
   </div>
 </dialog>
+
+<!-- Visual Enhancement CSS -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* ===== FONTS ===== */
+  body {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  }
+  code, kbd, .mono {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.9em;
+    background: rgba(99,102,241,0.1);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  header h1 {
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  /* ===== DIALOG: Fix white corners + backdrop ===== */
+  dialog {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    max-width: min(98vw, 1200px);
+  }
+  dialog::backdrop {
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .light-mode dialog::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+  }
+  /* Modal card itself carries the visual weight */
+  .modal {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 16px !important;
+    padding: 20px !important;
+    color: var(--text) !important;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3) !important;
+    transition: none;
+  }
+  .light-mode .modal {
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.08) !important;
+  }
+  .modal h3 {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    margin: 0 0 12px 0;
+    color: var(--text);
+  }
+
+  /* ===== SCROLLBARS ===== */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* ===== BUTTONS: Better states + transitions ===== */
+  .btn {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s, opacity 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover {
+    background: var(--even-row);
+    border-color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .btn:active { transform: translateY(1px); box-shadow: none; }
+  .btn.accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn.accent:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 4px 12px rgba(59,130,246,0.4);
+    border-color: transparent;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+    filter: none !important;
+  }
+  /* Mode toggle button */
+  .mode-toggle {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 16px;
+    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  }
+  .mode-toggle:hover {
+    background: var(--even-row);
+    border-color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  /* ===== INPUTS + SELECTS ===== */
+  .field input, .field select,
+  .modal input, .modal select, .modal textarea {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif;
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+  }
+  .field input:focus, .field select:focus,
+  .modal input:focus, .modal select:focus, .modal textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+  }
+  .modal input[readonly] {
+    opacity: 0.7;
+    cursor: default;
+  }
+  .modal textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+
+  /* ===== NATIVE DATE INPUT: calendar icon in dark mode ===== */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7) brightness(1.5);
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 2px;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+  }
+  .light-mode input[type="date"]::-webkit-calendar-picker-indicator,
+  .light-mode input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.3);
+    opacity: 0.6;
+  }
+
+  /* ===== DATE RANGE input arrow: adapt to theme ===== */
+  #daterange {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>") !important;
+  }
+  .light-mode #daterange {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23495057'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>") !important;
+  }
+
+  /* ===== FLATPICKR: full dark mode override ===== */
+  .flatpickr-calendar {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.4) !important;
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif !important;
+  }
+  .light-mode .flatpickr-calendar {
+    box-shadow: 0 12px 36px rgba(0,0,0,0.15) !important;
+  }
+  .flatpickr-months {
+    background: var(--card) !important;
+    border-radius: 12px 12px 0 0 !important;
+    padding: 4px 0 !important;
+  }
+  .flatpickr-month { color: var(--text) !important; fill: var(--text) !important; }
+  .flatpickr-current-month { color: var(--text) !important; }
+  .flatpickr-current-month .flatpickr-monthDropdown-months {
+    background: var(--card) !important;
+    color: var(--text) !important;
+  }
+  .flatpickr-current-month input.cur-year {
+    color: var(--text) !important;
+  }
+  .flatpickr-prev-month, .flatpickr-next-month {
+    color: var(--text) !important;
+    fill: var(--text) !important;
+  }
+  .flatpickr-prev-month:hover, .flatpickr-next-month:hover {
+    color: var(--accent) !important;
+    fill: var(--accent) !important;
+    background: rgba(59,130,246,0.1) !important;
+    border-radius: 6px !important;
+  }
+  .flatpickr-prev-month svg, .flatpickr-next-month svg {
+    fill: inherit !important;
+  }
+  .flatpickr-weekday {
+    background: var(--card) !important;
+    color: var(--muted) !important;
+    font-weight: 600 !important;
+    font-size: 11px !important;
+  }
+  .flatpickr-weekdays { background: var(--card) !important; }
+  .flatpickr-days { border-color: var(--border) !important; }
+  .dayContainer { background: var(--card) !important; }
+  .flatpickr-day {
+    color: var(--text) !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+  }
+  .flatpickr-day:hover {
+    background: rgba(59,130,246,0.15) !important;
+    border-color: transparent !important;
+  }
+  .flatpickr-day.today {
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+    font-weight: 600 !important;
+  }
+  .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+  }
+  .flatpickr-day.inRange {
+    background: rgba(59,130,246,0.15) !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    color: var(--text) !important;
+  }
+  .flatpickr-day.flatpickr-disabled, .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay {
+    color: var(--muted) !important;
+    opacity: 0.4 !important;
+  }
+
+  /* ===== FILTERS section ===== */
+  .filters {
+    border-radius: 12px !important;
+    border: 1px solid var(--border) !important;
+  }
+  .field label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  /* ===== TABLE: enhanced header ===== */
+  thead tr:nth-child(1) th,
+  thead tr:nth-child(2) th {
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.2px;
+    color: var(--muted);
+  }
+  thead tr:nth-child(2) th.sortable:hover {
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ===== ROSTER MATRIX header ===== */
+  #rosterMatrixHead th {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.2px !important;
+  }
+
+  /* ===== STATUS cells: slightly bolder ===== */
+  .status-A, .status-D, .status-U, .status-J,
+  .status-V, .status-O, .status-H, .status-C, .status-ML {
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+  }
+
+  /* ===== DAY CHECKBOXES ===== */
+  .day-checkbox {
+    font-weight: 500;
+    transition: all 0.15s;
+    border-radius: 8px !important;
+  }
+  .day-checkbox.selected {
+    box-shadow: 0 2px 6px rgba(59,130,246,0.35);
+  }
+
+  /* ===== ROSTER CELL hover ===== */
+  .roster-cell {
+    transition: transform 0.12s, box-shadow 0.12s !important;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.1px;
+  }
+
+  /* ===== TABLE-WRAP ===== */
+  .table-wrap {
+    border-radius: 12px !important;
+    border: 1px solid var(--border) !important;
+  }
+
+  /* ===== HEADER ===== */
+  header {
+    padding: 4px 0;
+  }
+  header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+  }
+  .title-secondary {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  /* ===== MODAL row labels ===== */
+  .modal .row label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+  }
+
+  /* ===== DROPZONE ===== */
+  #dropZone {
+    transition: border-color 0.2s, background 0.2s !important;
+    border-radius: 12px !important;
+  }
+  #dropZone:hover {
+    border-color: var(--accent) !important;
+    background: rgba(59,130,246,0.05) !important;
+  }
+
+  /* ===== CHECKBOX: native checkbox styling ===== */
+  input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ===== COLOR INPUT ===== */
+  input[type="color"] {
+    border-radius: 6px !important;
+    border: 1px solid var(--border) !important;
+    cursor: pointer;
+    padding: 2px !important;
+    background: var(--input-bg) !important;
+  }
+
+  /* ===== SHIFT LEGEND ===== */
+  #shiftLegend {
+    border-radius: 10px !important;
+  }
+  .roster-legend-item {
+    border-radius: 6px !important;
+    transition: transform 0.1s;
+  }
+  .roster-legend-item:hover {
+    transform: scale(1.04);
+  }
+
+  /* ===== SUMMARY text ===== */
+  #rosterSummary, .summary {
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  /* ===== OVVERRIDE / JUSTIFIED cell indicator ===== */
+  .ovr {
+    box-shadow: 0 0 0 2px rgba(255,255,255,.3) inset, 0 0 8px rgba(255,255,255,.2) !important;
+    filter: brightness(1.18) !important;
+  }
+
+  /* ===== Select elements: native arrow visible in both modes ===== */
+  select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 14px 14px;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    padding-right: 28px !important;
+  }
+  .light-mode select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23495057'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+  }
+  select option {
+    background: var(--card);
+    color: var(--text);
+  }
+</style>
 
 <!-- Flatpickr JS -->
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
