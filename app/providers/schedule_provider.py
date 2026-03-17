@@ -93,7 +93,7 @@ class ScheduleProvider:
             
             expected_start_str = start_t.strftime("%H:%M") if start_t else None
             expected_end_str = end_t.strftime("%H:%M") if end_t else None
-            is_night = shift_code in ["S1", "S10"] if shift_code else False
+            is_night = bool(SHIFT_CATALOG.get(shift_code, {}).get("crosses_midnight", False)) if shift_code else False
 
             rows.append({
                 "agent_id": agent_id,
@@ -209,6 +209,16 @@ class ScheduleProvider:
 
 
     @staticmethod
+    def invalidate_cache():
+        """
+        No persistent in-memory cache exists in ScheduleProvider - each call
+        queries the DB fresh. This method exists so roster.py can call it after
+        shift assignment changes without raising AttributeError.
+        """
+        pass
+
+
+    @staticmethod
     def get_schedule_cache_for_range(start_date: date, end_date: date) -> Dict[date, pd.DataFrame]:
         """
         Replaces 31 per-day DB calls with a single bulk query.
@@ -267,7 +277,7 @@ class ScheduleProvider:
                     "expected_end": end_t.strftime("%H:%M") if end_t else None,
                     "expected_start_t": start_t,
                     "expected_end_t": end_t,
-                    "is_night": shift_code in ["S1", "S10"],
+                    "is_night": crosses_midnight,
                     "working_days": "",
                     "days_off": "",
                     "color": color,

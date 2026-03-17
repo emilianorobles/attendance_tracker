@@ -345,6 +345,9 @@ async def update_shift_assignment(request: ShiftAssignmentRequest):
         request.shift_code,
         eff_date
     )
+
+    from ..providers.schedule_provider import ScheduleProvider
+    ScheduleProvider.invalidate_cache()
     
     return result
 
@@ -383,6 +386,9 @@ async def update_bulk_shift_assignment(request: BulkShiftAssignmentRequest):
         request.shift_code,
         eff_date
     )
+    
+    from ..providers.schedule_provider import ScheduleProvider
+    ScheduleProvider.invalidate_cache()
     
     return {"results": results}
 

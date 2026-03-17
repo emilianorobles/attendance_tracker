@@ -1599,7 +1599,7 @@
           const info = catalog[s];
           label = s === 'OFF'
             ? 'OFF - Day Off'
-            : `${s} — ${dstShiftTime(info.start_time || info.start || '')}–${dstShiftTime(info.end_time || info.end || '')}`;
+            : `${s} — ${info.start_time || info.start || ''}–${info.end_time || info.end || ''}`;
         }
         const sel = s === selectedValue ? 'selected' : '';
         return `<option value="${s}" ${sel}>${label}</option>`;
