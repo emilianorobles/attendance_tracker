@@ -2,78 +2,389 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>SCE IT Service Desk - Attendance</title>
+  <title>SCE IT Service Desk — Attendance</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="theme-color" content="#3b82f6">
 
-<!-- PWA manifest -->
-<meta name="theme-color" content="#3b82f6">
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <!-- Flatpickr CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <!-- Tom Select CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css">
 
-<!-- Registrar Service Worker para PWA -->
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/static/service-worker.js')
-        .then(reg => console.log('Service Worker registrado:', reg.scope))
-        .catch(err => console.error('Error al registrar SW:', err));
-    });
-  }
-</script>
+  <!-- PWA Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/service-worker.js')
+          .then(reg => console.log('Service Worker registered:', reg.scope))
+          .catch(err => console.error('Service Worker registration failed:', err));
+      });
+    }
+  </script>
 
   <style>
-    :root{
+    /* ── CSS Variables ── */
+    :root {
       --bg:#0f172a; --card:#111827; --text:#e5e7eb; --muted:#9ca3af;
       --accent:#3b82f6; --ok:#22c55e; --delay:#f59e0b; --unjust:#ef4444;
       --just:#a78bfa; --vac:#38bdf8; --off:#6b7280; --border:#1f2937;
       --glow:#ffffff; --input-bg:#0b1220; --even-row:#0d1424; --header-bg:#0b1220;
       --med:#f97316;
+      --hdr1-h: 33px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
     }
     .light-mode {
-      --bg:#ffffff; --card:#f8f9fa; --text:#212529; --muted:#495057;
-      --accent:#007bff; --ok:#28a745; --delay:#fd7e14; --unjust:#dc3545;
-      --just:#6f42c1; --vac:#20c997; --off:#6c757d; --border:#dee2e6;
-      --glow:#000000; --input-bg:#ffffff; --even-row:#f8f9fa; --header-bg:#f8f9fa;
-      --med:#fd7e14;
+      --bg:#f0f4f8; --card:#ffffff; --text:#1a202c; --muted:#64748b;
+      --accent:#2563eb; --ok:#16a34a; --delay:#d97706; --unjust:#dc2626;
+      --just:#7c3aed; --vac:#0891b2; --off:#6b7280; --border:#e2e8f0;
+      --glow:#000000; --input-bg:#ffffff; --even-row:#f8fafc; --header-bg:#f8fafc;
+      --med:#ea580c;
     }
-    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U, .light-mode .status-J, .light-mode .status-V, .light-mode .status-O, .light-mode .status-H, .light-mode .status-C, .light-mode .status-ML { color: #000; }
-    *{ box-sizing:border-box }
-    body { margin:0; background:var(--bg); color:var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
-    .container { max-width: 1400px; margin: 24px auto; padding: 0 16px; }
-    header { display:flex; align-items:center; gap:8px; justify-content:space-between; margin-bottom:16px; }
-    header h1 { margin:0; font-size:22px; letter-spacing:.5px; }
-    .title-secondary { color: var(--muted); font-size: 12px; margin-left: 6px; }
-    .filters { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1fr auto; gap:12px; align-items:end;
-      background: var(--card); padding:12px; border:1px solid var(--border); border-radius:10px; }
-    .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
-    .field input, .field select { width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
-      background:var(--input-bg); color:var(--text); }
-    /* Make the date range input look like the selects (add dropdown arrow) */
+    .light-mode .status-A, .light-mode .status-D, .light-mode .status-U,
+    .light-mode .status-J, .light-mode .status-V, .light-mode .status-O,
+    .light-mode .status-H, .light-mode .status-C, .light-mode .status-ML { color: #000; }
+
+    /* ── Base ── */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    code, kbd {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.875em;
+      background: rgba(99,102,241,0.12);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* ── Layout ── */
+    .container { max-width: 1400px; margin: 20px auto; padding: 0 16px; }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding: 4px 0;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+    }
+    .title-secondary {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      margin-left: 6px;
+    }
+
+    /* ── Filters bar ── */
+    .filters {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr 1fr 1fr auto;
+      gap: 12px;
+      align-items: end;
+      background: var(--card);
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    /* ── Inputs & Selects ── */
+    input, select, textarea {
+      font-family: inherit;
+      font-size: 13px;
+    }
+    .field input, .field select,
+    .modal input, .modal select, .modal textarea {
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .field input:focus, .field select:focus,
+    .modal input:focus, .modal select:focus, .modal textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+    .modal input[readonly] { opacity: 0.65; cursor: default; }
+    .modal textarea { resize: vertical; min-height: 56px; }
+
+    /* Remove native appearance from ALL selects so we control the arrow */
+    select {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 14px 14px;
+      padding-right: 28px !important;
+    }
+    .light-mode select {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+    }
+    select option { background: var(--card); color: var(--text); }
+
+    /* Date range input — custom arrow only, no native */
     #daterange {
       -webkit-appearance: none;
       -moz-appearance: none;
       appearance: none;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23ffffff'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
       background-repeat: no-repeat;
       background-position: right 10px center;
-      background-size: 16px 16px;
-      padding-right: 36px;
+      background-size: 14px 14px;
+      padding-right: 32px;
       cursor: pointer;
     }
-    .actions { display:flex; gap:8px; }
-    .btn { padding:10px 12px; border-radius:8px; border:1px solid var(--border);
-      background:var(--card); color:var(--text); cursor:pointer; transition:.2s; }
-    .btn:hover { background:var(--even-row); }
-    
-    /* Roster Matrix Styles */
+    .light-mode #daterange {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2364748b'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
+    }
+
+    /* Date/time picker icons — visible in dark mode */
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator {
+      filter: invert(0.6) brightness(1.6);
+      cursor: pointer;
+      opacity: 0.7;
+      transition: opacity 0.15s;
+    }
+    input[type="date"]::-webkit-calendar-picker-indicator:hover,
+    input[type="time"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+    .light-mode input[type="date"]::-webkit-calendar-picker-indicator,
+    .light-mode input[type="time"]::-webkit-calendar-picker-indicator {
+      filter: invert(0.3);
+      opacity: 0.55;
+    }
+
+    /* Checkboxes & color inputs */
+    input[type="checkbox"] {
+      width: 15px; height: 15px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    input[type="color"] {
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      padding: 2px;
+      background: var(--input-bg);
+    }
+
+    /* ── Buttons ── */
+    .actions { display: flex; gap: 8px; align-items: center; }
+    .btn {
+      padding: 7px 13px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+    }
+    .btn:hover {
+      background: var(--even-row);
+      border-color: var(--muted);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+    .btn.accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    .btn.accent:hover {
+      filter: brightness(1.1);
+      box-shadow: 0 3px 10px rgba(59,130,246,0.4);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none !important;
+      filter: none !important;
+    }
+    .mode-toggle {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .mode-toggle:hover { background: var(--even-row); box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+
+    /* ── Dialog & Modal ── */
+    dialog {
+      border: none;
+      padding: 0;
+      background: transparent;
+      overflow: visible;
+      max-width: 98vw;
+    }
+    dialog::backdrop {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+    }
+    .light-mode dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px 22px;
+      color: var(--text);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.25);
+      min-width: 300px;
+      max-height: 92vh;
+      overflow-y: auto;
+    }
+    .light-mode .modal {
+      box-shadow: 0 16px 48px rgba(0,0,0,0.14), 0 3px 12px rgba(0,0,0,0.07);
+    }
+    .modal h3 {
+      margin: 0 0 4px 0;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
+    .modal p {
+      margin: 0 0 14px 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .modal .row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .modal .row label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+    }
+    .modal footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Table ── */
+    .table-wrap {
+      margin-top: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+    }
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      min-width: 900px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 7px 8px;
+      text-align: center;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    /* Sticky header rows */
+    thead tr:nth-child(1) th {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--header-bg);
+      font-weight: 600; font-size: 12px; color: var(--muted);
+    }
+    thead tr:nth-child(2) th {
+      position: sticky; top: var(--hdr1-h); z-index: 9;
+      background: var(--header-bg);
+      font-weight: 600; font-size: 12px; color: var(--muted);
+    }
+    thead tr:nth-child(2) th.sortable:hover { color: var(--accent); cursor: pointer; }
+    tbody tr:nth-child(even) { background: var(--even-row); }
+
+    /* Status cells */
+    .status-A  { background: rgba(34,197,94,.3);  border-color: rgba(34,197,94,.5);  }
+    .status-D  { background: rgba(245,158,11,.3); border-color: rgba(245,158,11,.5); }
+    .status-U  { background: rgba(239,68,68,.3);  border-color: rgba(239,68,68,.5);  }
+    .status-J  { background: rgba(167,139,250,.3);border-color: rgba(167,139,250,.5);}
+    .status-V  { background: rgba(56,189,248,.3); border-color: rgba(56,189,248,.5); }
+    .status-O  { background: rgba(107,114,128,.3);border-color: rgba(107,114,128,.5);}
+    .status-H  { background: rgba(236,72,153,.3); border-color: rgba(236,72,153,.5); }
+    .status-C  { background: rgba(14,165,233,.3); border-color: rgba(14,165,233,.5); }
+    .status-ML { background: rgba(249,115,22,.3); border-color: rgba(249,115,22,.5); }
+    .status--  { background: transparent; border-color: var(--border); color: var(--muted); }
+    .status-A, .status-D, .status-U, .status-J, .status-V,
+    .status-O, .status-H, .status-C, .status-ML {
+      color: #fff;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.2px;
+    }
+    .ovr { box-shadow: 0 0 0 2px rgba(255,255,255,.3) inset, 0 0 8px rgba(255,255,255,.15); filter: brightness(1.18); }
+    td { cursor: pointer; }
+    .summary { margin-top: 8px; font-size: 12px; font-weight: 500; color: var(--muted); }
+
+    /* ── Roster Matrix ── */
+    #rosterMatrix { border-collapse: collapse; }
+    #rosterMatrix th, #rosterMatrix td {
+      border: 1px solid var(--border);
+      vertical-align: middle;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    #rosterMatrix tbody tr:hover { background: rgba(59,130,246,0.1) !important; }
+
+    /* Roster cell (day badges) */
     .roster-cell {
       cursor: pointer;
-      transition: all 0.1s ease;
       text-align: center;
+      transition: transform 0.12s, box-shadow 0.12s;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 11px;
     }
     .roster-cell:hover {
       transform: scale(1.08);
@@ -81,116 +392,96 @@
       z-index: 5;
       position: relative;
     }
-    
+
+    /* Roster legend */
     .roster-legend-item {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 3px 8px;
-      border-radius: 4px;
+      padding: 3px 7px;
+      border-radius: 6px;
       font-size: 10px;
       font-weight: 500;
+      transition: transform 0.1s;
     }
+    .roster-legend-item:hover { transform: scale(1.04); }
     .roster-legend-color {
-      width: 14px;
-      height: 14px;
+      width: 12px; height: 12px;
       border-radius: 3px;
-      border: 1px solid rgba(255,255,255,0.3);
+      border: 1px solid rgba(255,255,255,0.25);
     }
-    
-    #rosterMatrix {
-      border-collapse: collapse;
-    }
-    #rosterMatrix th, #rosterMatrix td {
-      border: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    #rosterMatrix tbody tr:hover {
-      background: rgba(59, 130, 246, 0.1) !important;
-    }
-    
+
+    /* Day checkboxes */
     .day-checkbox {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 4px 8px;
-      border-radius: 6px;
+      padding: 5px 9px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       border: 1px solid var(--border);
       background: var(--bg);
       font-size: 12px;
+      font-weight: 500;
       transition: all 0.15s;
     }
     .day-checkbox:hover { border-color: var(--accent); }
-    .day-checkbox.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .day-checkbox.selected {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(59,130,246,0.3);
+    }
     .day-checkbox input { display: none; }
-    .btn.accent { background: var(--accent); border-color: var(--accent); color:#fff; }
-    /* Variable para altura de la primera fila del header */
-    :root {
-      --hdr1-h: 33px; /* Altura de la fila 1 del thead (ajustar si cambia padding/font) */
+
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    /* ── Flatpickr theme ── */
+    .flatpickr-calendar {
+      background: var(--card) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius-md) !important;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35) !important;
+      font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif !important;
     }
-    
-    /* Wrapper con scroll vertical y horizontal */
-    .table-wrap { 
-      margin-top:16px; 
-      background: var(--card); 
-      border:1px solid var(--border); 
-      border-radius:10px; 
-      overflow-x: auto; /* Horizontal scroll only — vertical handled by the page */
+    .flatpickr-months { background: var(--card) !important; border-radius: var(--radius-md) var(--radius-md) 0 0 !important; }
+    .flatpickr-month, .flatpickr-current-month { color: var(--text) !important; fill: var(--text) !important; }
+    .flatpickr-current-month .flatpickr-monthDropdown-months { background: var(--card) !important; color: var(--text) !important; }
+    .flatpickr-current-month input.cur-year { color: var(--text) !important; }
+    .flatpickr-prev-month, .flatpickr-next-month { color: var(--text) !important; fill: var(--text) !important; }
+    .flatpickr-prev-month:hover, .flatpickr-next-month:hover {
+      color: var(--accent) !important; fill: var(--accent) !important;
+      background: rgba(59,130,246,0.1) !important; border-radius: 6px !important;
     }
-    
-    /* Tabla con border-collapse: separate para sticky correcto */
-    table { 
-      border-collapse: separate; 
-      border-spacing: 0; 
-      width:100%; 
-      min-width: 900px; 
+    .flatpickr-prev-month svg, .flatpickr-next-month svg { fill: inherit !important; }
+    .flatpickr-weekday { background: var(--card) !important; color: var(--muted) !important; font-weight: 600 !important; font-size: 11px !important; }
+    .flatpickr-weekdays { background: var(--card) !important; }
+    .flatpickr-days { border-color: var(--border) !important; }
+    .dayContainer { background: var(--card) !important; }
+    .flatpickr-day { color: var(--text) !important; border-radius: 7px !important; font-size: 13px !important; }
+    .flatpickr-day:hover { background: rgba(59,130,246,0.15) !important; border-color: transparent !important; }
+    .flatpickr-day.today { border-color: var(--accent) !important; color: var(--accent) !important; font-weight: 600 !important; }
+    .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange {
+      background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; font-weight: 600 !important;
     }
-    
-    th, td { border:1px solid var(--border); padding:8px; text-align:center; font-size:13px; white-space:nowrap; }
-    
-    /* Fila 1 del thead (nombres de día): sticky en top: 0 */
-    thead tr:nth-child(1) th { 
-      position: sticky; 
-      top: 0; 
-      z-index: 10; /* Mayor que celdas del body */
-      background: var(--header-bg); /* Fondo sólido */
+    .flatpickr-day.inRange {
+      background: rgba(59,130,246,0.15) !important; border-color: transparent !important;
+      box-shadow: none !important; color: var(--text) !important;
     }
-    
-    /* Fila 2 del thead (números de día): sticky en top: altura de fila 1 */
-    thead tr:nth-child(2) th { 
-      position: sticky; 
-      top: var(--hdr1-h); /* Altura real de la fila 1 */
-      z-index: 9; /* Menor que fila 1, mayor que body */
-      background: var(--header-bg); /* Fondo sólido */
+    .flatpickr-day.flatpickr-disabled, .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay {
+      color: var(--muted) !important; opacity: 0.4 !important;
     }
-    
-    tbody tr:nth-child(even) { background: var(--even-row); }
-    .status-A { background: rgba(34,197,94,.3); border-color: rgba(34,197,94,.5); }
-    .status-D { background: rgba(245,158,11,.3); border-color: rgba(245,158,11,.5); }
-    .status-U { background: rgba(239,68,68,.3); border-color: rgba(239,68,68,.5); }
-    .status-J { background: rgba(167,139,250,.3); border-color: rgba(167,139,250,.5); }
-    .status-V { background: rgba(56,189,248,.3); border-color: rgba(56,189,248,.5); }
-    .status-O { background: rgba(107,114,128,.3); border-color: rgba(107,114,128,.5); }
-    .status-H { background: rgba(236,72,153,.3); border-color: rgba(236,72,153,.5); }
-    .status-C { background: rgba(14,165,233,.3); border-color: rgba(14,165,233,.5); }
-    .status-ML { background: rgba(249,115,22,.3); border-color: rgba(249,115,22,.5); }
-    /* Pending/future dates - empty neutral style */
-    .status-- { background: transparent; border-color: var(--border); color: var(--muted); }
-    /* Text color for status cells - white in dark mode */
-    .status-A, .status-D, .status-U, .status-J, .status-V, .status-O, .status-H, .status-C, .status-ML { color: #fff; }
-    /* ✔ Celda con override/justificación: brillo y borde más claro */
-    .ovr { box-shadow: 0 0 0 2px rgba(255,255,255,.25) inset, 0 0 6px rgba(255,255,255,.15); filter: brightness(1.15); }
-    td { cursor:pointer; }
-    .summary { margin-top:8px; font-size:13px; color:var(--muted); }
-    dialog { border:none; padding:0; background: transparent; }
-    .modal { background: var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; min-width:300px; color: var(--text); }
-    .modal h3 { margin:0 0 8px 0; }
-    .modal .row { display:grid; grid-template-columns: 1fr 2fr; gap:8px; margin-top:8px; }
-    .modal input, .modal select, .modal textarea { padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--input-bg); color:var(--text); }
-    .modal footer { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+
+    /* ── Drop zone ── */
+    #dropZone { transition: border-color 0.2s, background 0.2s; border-radius: var(--radius-md) !important; }
+    #dropZone:hover { border-color: var(--accent) !important; background: rgba(59,130,246,0.05) !important; }
+
+    /* ── Miscellaneous ── */
     .sortable { cursor: pointer; user-select: none; }
-    .mode-toggle { background: none; border: none; color: var(--text); font-size: 18px; cursor: pointer; padding: 4px; }
   </style>
 </head>
 <body>
@@ -201,44 +492,44 @@
       <div class="title-secondary" id="titleMonth"></div>
     </div>
     <div class="actions">
-      <button class="btn" id="btnViewSchedules" title="View and edit agent schedules">👥 View/Edit Schedules</button>
-      <button class="btn" id="btnUploadActuals" title="Upload actuals.csv">📤 Actuals</button>
-      <button class="btn" id="btnJustificationsReport">Justifications Report</button>
-      <button class="btn accent" id="btnExport">Export</button>
-      <button class="mode-toggle" id="btnModeToggle" title="Toggle Light/Dark Mode">🌙</button>
+      <button class="btn" id="btnViewSchedules" title="View and edit agent schedules">👥 Schedules</button>
+      <button class="btn" id="btnUploadActuals" title="Upload actuals CSV file">📤 Upload Actuals</button>
+      <button class="btn" id="btnJustificationsReport">📊 Justifications</button>
+      <button class="btn accent" id="btnExport">⬇ Export</button>
+      <button class="mode-toggle" id="btnModeToggle" title="Toggle light/dark mode">🌙</button>
     </div>
   </header>
 
   <section class="filters">
     <div class="field">
       <label>Date Range</label>
-      <input id="daterange" placeholder="Select date range (YYYY-MM-DD)" />
+      <input id="daterange" placeholder="Select a date range" />
     </div>
     <div class="field">
       <label>Lead</label>
-      <select id="lead" placeholder="Select a lead"></select>
+      <select id="lead"><option value="">All Leads</option></select>
     </div>
     <div class="field">
-      <label>Agent (ID)</label>
-      <select id="agent_id" placeholder="Select an agent"></select>
+      <label>Agent</label>
+      <select id="agent_id"><option value="">All Agents</option></select>
     </div>
     <div class="field">
       <label>Status</label>
       <select id="statusFilter">
-        <option value="">All</option>
-        <option value="A">A (Attendance)</option>
-        <option value="V">V (Vacation)</option>
-        <option value="D">D (Delay)</option>
-        <option value="O">O (Day Off)</option>
-        <option value="U">U (Unjustified)</option>
-        <option value="J">J (Justified)</option>
-        <option value="H">H (Holiday)</option>
-        <option value="C">C (Comp Off)</option>
-        <option value="ML">ML (Medical Leave)</option>
+        <option value="">All Statuses</option>
+        <option value="A">A — Present</option>
+        <option value="V">V — Vacation</option>
+        <option value="D">D — Delay</option>
+        <option value="O">O — Day Off</option>
+        <option value="U">U — Unjustified</option>
+        <option value="J">J — Justified</option>
+        <option value="H">H — Holiday</option>
+        <option value="C">C — Comp Day</option>
+        <option value="ML">ML — Medical Leave</option>
       </select>
     </div>
     <div class="actions">
-      <button class="btn" id="btnClear">Clear filters</button>
+      <button class="btn" id="btnClear">✕ Clear</button>
     </div>
   </section>
 
@@ -253,8 +544,9 @@
 </div>
 
 <dialog id="modal">
-  <div class="modal">
-    <h3>Justify / Vacation / Override</h3>
+  <div class="modal" style="width: 420px;">
+    <h3>✏️ Add Justification or Override</h3>
+    <p>Assign a status override or add a note for this attendance record.</p>
     <div class="row">
       <label>Agent</label>
       <input id="mAgent" readonly/>
@@ -264,39 +556,38 @@
       <input id="mDate" readonly/>
     </div>
     <div class="row">
-      <label>Type</label>
+      <label>Override Type</label>
       <select id="mType">
-        <option value="A">A (Attendance)</option>
-        <option value="J">J (Justified)</option>
-        <option value="V">V (Vacation)</option>
-        <option value="U">U (Unjustified)</option>
-        <option value="D">D (Delay)</option>
-        <option value="H">H (Holiday)</option>
-        <option value="C">C (Comp Off)</option>
-        <option value="ML">ML (Medical Leave)</option>
+        <option value="A">A — Present</option>
+        <option value="J">J — Justified</option>
+        <option value="V">V — Vacation</option>
+        <option value="U">U — Unjustified</option>
+        <option value="D">D — Delay</option>
+        <option value="H">H — Holiday</option>
+        <option value="C">C — Comp Day</option>
+        <option value="ML">ML — Medical Leave</option>
       </select>
     </div>
     <div class="row">
       <label>Note</label>
-      <textarea id="mNote" placeholder="Reason / comment..."></textarea>
+      <textarea id="mNote" placeholder="Reason or comment (optional)"></textarea>
     </div>
     <div class="row">
       <label>Lead</label>
       <input id="mLead" placeholder="Lead name (optional)"/>
     </div>
-    <!-- Attendance Details block (read-only, from actuals.csv and schedules.csv in memory) -->
-    <div id="attendanceDetailsBlock" style="margin-top:16px; margin-bottom:8px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg);">
-      <div style="font-weight:600; margin-bottom:8px; color:var(--muted); font-size:12px;">Attendance Details</div>
+    <div id="attendanceDetailsBlock" style="margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--bg);">
+      <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); margin-bottom:10px;">Attendance Details</div>
       <div class="row">
         <label>Shift</label>
         <input id="mShift" readonly/>
       </div>
       <div class="row">
-        <label>Planned shift</label>
+        <label>Planned</label>
         <input id="mPlannedShift" readonly/>
       </div>
       <div class="row">
-        <label>Actual shift</label>
+        <label>Actual</label>
         <input id="mActualShift" readonly/>
       </div>
       <div class="row">
@@ -305,7 +596,7 @@
       </div>
     </div>
     <footer>
-      <button class="btn" id="mRevert">Revert</button>
+      <button class="btn" id="mRevert">↩ Revert</button>
       <button class="btn" id="mCancel">Cancel</button>
       <button class="btn accent" id="mSave">Save</button>
     </footer>
@@ -314,23 +605,21 @@
 
 <!-- Upload Actuals Modal -->
 <dialog id="uploadModal">
-  <div class="modal" style="min-width: 400px;">
+  <div class="modal" style="width: 440px;">
     <h3>📤 Upload Actuals CSV</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
-      Upload a new <code>actuals.csv</code> file to update attendance data.
-    </p>
+    <p>Upload a new <code>actuals.csv</code> file to update attendance data. Existing dates in the file will be replaced; all other data is preserved.</p>
     <div class="row">
       <label>Password</label>
       <input id="uploadToken" type="password" placeholder="Enter admin password" />
     </div>
-    <div id="dropZone" style="border: 2px dashed var(--border); border-radius: 10px; padding: 32px; text-align: center; margin: 12px 0; cursor: pointer; transition: .2s;">
-      <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
-      <div>Drag & drop <strong>actuals.csv</strong> here</div>
-      <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">or click to browse</div>
+    <div id="dropZone" style="border: 2px dashed var(--border); border-radius: 10px; padding: 28px; text-align: center; margin: 14px 0; cursor: pointer; transition: .2s;">
+      <div style="font-size: 28px; margin-bottom: 6px;">📁</div>
+      <div style="font-weight: 600; margin-bottom: 4px;">Drop <strong>actuals.csv</strong> here</div>
+      <div style="font-size: 12px; color: var(--muted);">or click to browse</div>
       <input type="file" id="fileInput" accept=".csv" style="display: none;" />
     </div>
-    <div id="uploadFileName" style="font-size: 13px; color: var(--muted); margin-bottom: 8px;"></div>
-    <div id="uploadStatus" style="font-size: 13px; margin-bottom: 8px;"></div>
+    <div id="uploadFileName" style="font-size: 12px; color: var(--muted); margin-bottom: 6px;"></div>
+    <div id="uploadStatus" style="font-size: 13px; margin-bottom: 6px;"></div>
     <footer>
       <button class="btn" id="uploadCancel">Cancel</button>
       <button class="btn accent" id="uploadSubmit" disabled>Upload</button>
@@ -341,103 +630,97 @@
 
 <!-- View Schedules Modal - Roster Matrix -->
 <dialog id="schedulesViewModal">
-  <div class="modal" style="min-width: 95vw; max-width: 98vw; max-height: 95vh;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <h3 style="margin: 0;">📋 Service Desk Technician Schedules</h3>
-      <div style="display: flex; gap: 8px;">
-        <button class="btn" id="btnExportSchedules" title="Download schedules as Excel">📥 Export Excel</button>
-        <button class="btn" id="btnManageShifts" title="Manage shift templates">⚙️ Manage Shifts</button>
-        <button class="btn" id="btnAddAgent" title="Add new agent to roster">➕ Add Agent</button>
-        <button class="btn accent" id="schedulesViewClose">Close</button>
+  <div class="modal" style="width: min(97vw, 1300px); max-height: 94vh; display: flex; flex-direction: column; padding: 16px 18px;">
+    <!-- Header row -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-shrink: 0;">
+      <h3 style="margin: 0;">📋 Technician Schedules</h3>
+      <div style="display: flex; gap: 7px; align-items: center;">
+        <button class="btn" id="btnExportSchedules" title="Download schedules as Excel">📥 Excel</button>
+        <button class="btn" id="btnManageShifts" title="Manage shift templates">⚙️ Shifts</button>
+        <button class="btn" id="btnAddAgent" title="Add a new agent to the roster">➕ Agent</button>
+        <button class="btn accent" id="schedulesViewClose" style="padding: 7px 16px;">✕ Close</button>
       </div>
     </div>
-    
+
     <!-- Shift Legend -->
-    <div id="shiftLegend" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border);">
-      <span style="font-size: 11px; color: var(--muted); margin-right: 8px; align-self: center;">Shift Codes:</span>
-      <!-- Legend items will be populated by JS -->
+    <div id="shiftLegend" style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; padding: 8px 10px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); flex-shrink: 0;">
+      <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin-right: 6px; align-self: center;">Shift Codes:</span>
     </div>
-    
-    <!-- Filters -->
-    <div style="display: flex; gap: 12px; margin-bottom: 12px; align-items: end; flex-wrap: wrap;">
-      <!-- Hidden effective date for compatibility -->
+
+    <!-- Filters row -->
+    <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-end; flex-wrap: wrap; flex-shrink: 0;">
       <input id="rosterWeekStart" type="hidden" />
-      <div class="field" style="min-width: 120px;">
+      <div class="field" style="min-width: 130px;">
         <label>Lead</label>
         <select id="rosterLeadFilter">
           <option value="">All Leads</option>
         </select>
       </div>
-      <div class="field" style="min-width: 120px;">
+      <div class="field" style="min-width: 200px;">
         <label>Agent</label>
         <select id="rosterAgentFilter">
           <option value="">All Agents</option>
         </select>
       </div>
-      <button class="btn accent" id="btnSaveChanges" style="display: none;" title="Save pending changes">💾 Save Changes</button>
+      <button class="btn accent" id="btnSaveChanges" style="display: none;" title="Save pending shift changes">💾 Save Changes</button>
       <span id="pendingChangesCount" style="font-size: 12px; color: var(--delay); align-self: center;"></span>
     </div>
-    <!-- Hidden elements for compatibility -->
     <select id="rosterStatusFilter" style="display: none;"><option value="all">All</option></select>
-    
+
     <!-- Roster Matrix Table -->
-    <div style="max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px;">
+    <div style="flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; min-height: 0;">
       <table id="rosterMatrix" style="margin: 0; min-width: 100%; border-collapse: collapse; font-size: 12px;">
         <thead id="rosterMatrixHead" style="position: sticky; top: 0; z-index: 10;">
           <tr style="background: #1a365d;">
-            <th data-sort-col="agent_id" style="position: sticky; left: 0; z-index: 12; background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by Agent ID">Agent ID <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
-            <th data-sort-col="user_id" style="position: sticky; left: 90px; z-index: 12; background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by User ID">User ID <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
-            <th data-sort-col="full_name" style="position: sticky; left: 170px; z-index: 12; background: #1a365d; min-width: 200px; padding: 8px 6px; color: #fff; font-weight: 600; text-align: left; cursor: pointer; user-select: none;" title="Sort by Full Name">Full Name <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
+            <th data-sort-col="agent_id" style="position: sticky; left: 0; z-index: 12; background: #1a365d; min-width: 85px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by Agent ID">Agent ID <span class="sort-icon" style="font-size:9px;opacity:0.6;">↕</span></th>
+            <th data-sort-col="user_id" style="position: sticky; left: 85px; z-index: 12; background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by User ID">User ID <span class="sort-icon" style="font-size:9px;opacity:0.6;">↕</span></th>
+            <th data-sort-col="full_name" style="position: sticky; left: 165px; z-index: 12; background: #1a365d; min-width: 190px; padding: 8px 6px; color: #fff; font-weight: 600; text-align: left; cursor: pointer; user-select: none;" title="Sort by Full Name">Full Name <span class="sort-icon" style="font-size:9px;opacity:0.6;">↕</span></th>
             <th style="background: #1a365d; min-width: 90px; padding: 8px 6px; color: #fff; font-weight: 600;">Schedule</th>
-            <th class="roster-day" data-day="Mon" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Mon</th>
-            <th class="roster-day" data-day="Tue" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Tue</th>
-            <th class="roster-day" data-day="Wed" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Wed</th>
-            <th class="roster-day" data-day="Thu" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Thu</th>
-            <th class="roster-day" data-day="Fri" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Fri</th>
-            <th class="roster-day" data-day="Sat" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Sat</th>
-            <th class="roster-day" data-day="Sun" style="background: #1a365d; min-width: 50px; padding: 8px 4px; color: #fff; font-weight: 600;">Sun</th>
-            <th data-sort-col="lead" style="background: #1a365d; min-width: 70px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by Lead">Lead <span class="sort-icon" style="font-size:10px;opacity:0.6;">↕</span></th>
-            <th style="background: #1a365d; min-width: 80px; padding: 8px 6px; color: #fff; font-weight: 600;">Actions</th>
+            <th class="roster-day" data-day="Mon" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Mon</th>
+            <th class="roster-day" data-day="Tue" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Tue</th>
+            <th class="roster-day" data-day="Wed" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Wed</th>
+            <th class="roster-day" data-day="Thu" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Thu</th>
+            <th class="roster-day" data-day="Fri" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Fri</th>
+            <th class="roster-day" data-day="Sat" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Sat</th>
+            <th class="roster-day" data-day="Sun" style="background: #1a365d; min-width: 52px; padding: 8px 4px; color: #fff; font-weight: 600;">Sun</th>
+            <th data-sort-col="lead" style="background: #1a365d; min-width: 70px; padding: 8px 6px; color: #fff; font-weight: 600; cursor: pointer; user-select: none;" title="Sort by Lead">Lead <span class="sort-icon" style="font-size:9px;opacity:0.6;">↕</span></th>
+            <th style="background: #1a365d; min-width: 75px; padding: 8px 6px; color: #fff; font-weight: 600;">Actions</th>
           </tr>
         </thead>
         <tbody id="rosterMatrixBody"></tbody>
       </table>
     </div>
-    
-    <div id="rosterSummary" style="font-size: 12px; color: var(--muted); margin-top: 8px;"></div>
+
+    <div id="rosterSummary" style="font-size: 11px; color: var(--muted); margin-top: 6px; flex-shrink: 0;"></div>
   </div>
 </dialog>
 
-<!-- Edit Shift Modal -->
+<!-- Edit Shift Assignment Modal -->
 <dialog id="editShiftModal">
-  <div class="modal" style="min-width: 350px;">
+  <div class="modal" style="width: 380px;">
     <h3>✏️ Edit Shift Assignment</h3>
-    <p id="editShiftInfo" style="font-size: 13px; color: var(--muted); margin: 8px 0;"></p>
-    
+    <p id="editShiftInfo"></p>
     <div class="row">
       <label>Agent</label>
       <input id="editShiftAgent" readonly />
     </div>
-    <div class="row">
-      <label>Day(s)</label>
-      <div id="editShiftDays" style="display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0;">
+    <div class="row" style="align-items: flex-start; padding-top: 4px;">
+      <label style="padding-top: 8px;">Days</label>
+      <div id="editShiftDays" style="display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 0;">
         <!-- Day checkboxes populated by JS -->
       </div>
     </div>
     <div class="row">
       <label>Shift</label>
-      <select id="editShiftCode" style="width: 100%;">
-        <!-- Options populated by JS -->
-      </select>
+      <select id="editShiftCode" style="width: 100%;"></select>
     </div>
     <div class="row">
-      <label>Effective Date</label>
-      <input id="editShiftEffectiveDate" type="date" title="Changes will apply from this date onwards" />
+      <label>Effective From</label>
+      <input id="editShiftEffectiveDate" type="date" title="Changes apply from this date forward" />
     </div>
-    <div style="font-size: 11px; color: var(--muted); margin: 4px 0 8px 0;">
-      ℹ️ Previous schedule will be preserved as history up to the day before effective date.
-    </div>
-    
+    <p style="font-size: 11px; color: var(--muted); margin: 6px 0 0 0;">
+      ℹ️ The previous schedule is preserved as history up to the day before the effective date.
+    </p>
     <footer>
       <button class="btn" id="editShiftCancel">Cancel</button>
       <button class="btn accent" id="editShiftSave">Save Changes</button>
@@ -445,15 +728,14 @@
   </div>
 </dialog>
 
-<!-- Edit Lead Modal -->
+<!-- Edit Agent Modal -->
 <dialog id="editAgentModal">
-  <div class="modal" style="min-width: 380px;">
+  <div class="modal" style="width: 400px;">
     <h3>✏️ Edit Agent</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">Update agent information. Agent ID cannot be changed here.</p>
-
+    <p>Update agent information. The Agent ID cannot be changed.</p>
     <div class="row">
       <label>Agent ID</label>
-      <input id="editAgentId" readonly style="opacity: 0.6;" />
+      <input id="editAgentId" readonly style="opacity: 0.55;" />
     </div>
     <div class="row">
       <label>User ID</label>
@@ -465,28 +747,21 @@
     </div>
     <div class="row">
       <label>Lead</label>
-      <select id="editAgentLead" style="width: 100%;">
-        <!-- Options populated by JS -->
-      </select>
+      <select id="editAgentLead" style="width: 100%;"></select>
     </div>
-
-    <div id="editAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
-
+    <div id="editAgentStatus" style="font-size: 13px; margin: 6px 0;"></div>
     <footer>
       <button class="btn" id="editAgentCancel">Cancel</button>
-      <button class="btn accent" id="editAgentSave">Save</button>
+      <button class="btn accent" id="editAgentSave">Save Changes</button>
     </footer>
   </div>
 </dialog>
 
 <!-- Add Agent Modal -->
 <dialog id="addAgentModal">
-  <div class="modal" style="min-width: 400px;">
+  <div class="modal" style="width: 420px;">
     <h3>➕ Add Agent to Roster</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
-      Add a new technician to the schedule roster.
-    </p>
-    
+    <p>Add a new technician to the schedule roster.</p>
     <div class="row">
       <label>Agent ID</label>
       <input id="addAgentId" placeholder="e.g., 10050" />
@@ -501,29 +776,21 @@
     </div>
     <div class="row">
       <label>Lead</label>
-      <select id="addAgentLead">
-        <!-- Options populated by JS -->
-      </select>
+      <select id="addAgentLead"></select>
     </div>
     <div class="row">
-      <label>Effective Date</label>
-      <input id="addAgentEffectiveDate" type="date" title="Agent will appear in roster from this date" />
+      <label>Effective From</label>
+      <input id="addAgentEffectiveDate" type="date" title="Agent appears in the roster from this date" />
     </div>
     <div class="row">
       <label>Default Shift</label>
-      <select id="addAgentDefaultShift">
-        <!-- Options populated by JS -->
-      </select>
+      <select id="addAgentDefaultShift"></select>
     </div>
-    <div class="row">
-      <label>Working Days</label>
-      <div id="addAgentWorkingDays" style="display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0;">
-        <!-- Day checkboxes populated by JS -->
-      </div>
+    <div class="row" style="align-items: flex-start; padding-top: 4px;">
+      <label style="padding-top: 8px;">Working Days</label>
+      <div id="addAgentWorkingDays" style="display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 0;"></div>
     </div>
-    
-    <div id="addAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
-    
+    <div id="addAgentStatus" style="font-size: 13px; margin: 6px 0;"></div>
     <footer>
       <button class="btn" id="addAgentCancel">Cancel</button>
       <button class="btn accent" id="addAgentSave">Add Agent</button>
@@ -533,63 +800,54 @@
 
 <!-- Remove Agent Modal -->
 <dialog id="removeAgentModal">
-  <div class="modal" style="min-width: 350px;">
-    <h3>�️ Delete Agent Permanently</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
-      This will permanently delete the agent and all their history.
-    </p>
-    
+  <div class="modal" style="width: 380px;">
+    <h3>🗑️ Remove Agent</h3>
+    <p>This will permanently delete the agent and all their schedule history. This action cannot be undone.</p>
     <div class="row">
       <label>Agent</label>
       <input id="removeAgentName" readonly />
     </div>
     <div class="row">
-      <label>Effective Date</label>
-      <input id="removeAgentEffectiveDate" type="date" title="Agent will be deleted effective this date" />
+      <label>Effective From</label>
+      <input id="removeAgentEffectiveDate" type="date" title="Agent is removed from this date forward" />
     </div>
-    <div style="font-size: 11px; color: var(--unjust); margin: 4px 0 8px 0; font-weight: 500;">
-      ⚠️ This action cannot be undone. All data will be permanently deleted.
+    <div style="font-size: 12px; color: var(--unjust); margin: 8px 0; font-weight: 600; padding: 8px 10px; background: rgba(239,68,68,0.08); border-radius: 6px; border: 1px solid rgba(239,68,68,0.2);">
+      ⚠️ All data — schedule history, shift assignments, and status records — will be permanently deleted.
     </div>
-    
-    <div id="removeAgentStatus" style="font-size: 13px; margin: 8px 0;"></div>
-    
+    <div id="removeAgentStatus" style="font-size: 13px; margin: 6px 0;"></div>
     <footer>
       <button class="btn" id="removeAgentCancel">Cancel</button>
-      <button class="btn" id="removeAgentSave" style="background: var(--unjust); border-color: var(--unjust);">Delete Permanently</button>
+      <button class="btn" id="removeAgentSave" style="background: var(--unjust); border-color: var(--unjust); color: #fff; font-weight: 600;">Delete Permanently</button>
     </footer>
   </div>
 </dialog>
 
 <!-- Manage Shift Templates Modal -->
 <dialog id="manageShiftsModal">
-  <div class="modal" style="min-width: 680px; max-width: 780px;">
+  <div class="modal" style="width: 680px;">
     <h3>⚙️ Manage Shift Templates</h3>
-    <p style="font-size: 13px; color: var(--muted); margin: 8px 0;">
-      Add, edit or remove shift categories. Changes will apply to new assignments.
-    </p>
-    
+    <p>Add, edit, or remove shift categories. Changes apply to new assignments immediately.</p>
+
     <!-- Existing Shifts Table -->
-    <div style="max-height: 300px; overflow-y: auto; overflow-x: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 6px; min-width: 0;">
-      <table style="width: 100%; font-size: 12px; margin: 0;">
+    <div style="max-height: 260px; overflow-y: auto; overflow-x: auto; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 8px;">
+      <table style="width: 100%; font-size: 12px; margin: 0; border-collapse: collapse;">
         <thead style="position: sticky; top: 0; background: var(--card);">
           <tr>
-            <th style="padding: 8px; text-align: left;">Code</th>
-            <th style="padding: 8px; text-align: left;">Start</th>
-            <th style="padding: 8px; text-align: left;">End</th>
-            <th style="padding: 8px; text-align: center;">Color</th>
-            <th style="padding: 8px; text-align: center;">Midnight</th>
-            <th style="padding: 8px; text-align: center;">Actions</th>
+            <th style="padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--border);">Code</th>
+            <th style="padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--border);">Start</th>
+            <th style="padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--border);">End</th>
+            <th style="padding: 8px 10px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--border);">Color</th>
+            <th style="padding: 8px 10px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--border);">Midnight</th>
+            <th style="padding: 8px 10px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); border-bottom: 1px solid var(--border);">Actions</th>
           </tr>
         </thead>
-        <tbody id="shiftTemplatesBody">
-          <!-- Populated by JS -->
-        </tbody>
+        <tbody id="shiftTemplatesBody"></tbody>
       </table>
     </div>
-    
-    <!-- Add/Edit Form -->
-    <div style="background: var(--bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
-      <h4 id="shiftFormTitle" style="margin: 0 0 12px 0; font-size: 14px;">➕ Add New Shift</h4>
+
+    <!-- Add / Edit Form -->
+    <div style="background: var(--bg); padding: 14px; border-radius: 10px; border: 1px solid var(--border);">
+      <h4 id="shiftFormTitle" style="margin: 0 0 12px 0; font-size: 13px; font-weight: 700;">➕ Add New Shift</h4>
       <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
         <div class="field">
           <label>Shift Code</label>
@@ -608,446 +866,28 @@
         <div class="field">
           <label>Color</label>
           <div style="display: flex; gap: 8px; align-items: center;">
-            <input id="shiftFormColor" type="color" value="#3B82F6" style="width: 50px; height: 32px; padding: 0; border: none;" />
-            <span id="shiftFormColorHex" style="font-size: 11px; color: var(--muted);">#3B82F6</span>
+            <input id="shiftFormColor" type="color" value="#3B82F6" style="width: 44px; height: 30px;" />
+            <span id="shiftFormColorHex" style="font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace;">#3B82F6</span>
           </div>
         </div>
-        <div class="field">
-          <label style="display: flex; align-items: center; gap: 8px;">
+        <div class="field" style="display: flex; align-items: flex-end; padding-bottom: 2px;">
+          <label style="display: flex; align-items: center; gap: 7px; cursor: pointer; text-transform: none; font-size: 13px; font-weight: 500; letter-spacing: 0;">
             <input id="shiftFormMidnight" type="checkbox" />
-            Crosses Midnight
+            Crosses midnight
           </label>
         </div>
       </div>
-      <div style="display: flex; gap: 8px; margin-top: 12px;">
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
         <button class="btn accent" id="shiftFormSave">Save Shift</button>
         <button class="btn" id="shiftFormCancel" style="display: none;">Cancel Edit</button>
       </div>
     </div>
-    
-    <footer style="margin-top: 16px;">
-      <button class="btn accent" id="manageShiftsClose">Close</button>
+
+    <footer style="margin-top: 14px;">
+      <button class="btn accent" id="manageShiftsClose">Done</button>
     </footer>
   </div>
 </dialog>
-
-<!-- Visual Enhancement CSS -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-
-<style>
-  /* ===== FONTS ===== */
-  body {
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
-  }
-  code, kbd, .mono {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-size: 0.9em;
-    background: rgba(99,102,241,0.1);
-    padding: 1px 5px;
-    border-radius: 4px;
-  }
-  header h1 {
-    font-weight: 700;
-    letter-spacing: -0.3px;
-  }
-
-  /* ===== DIALOG: Fix white corners + backdrop ===== */
-  dialog {
-    background: transparent !important;
-    border: none !important;
-    padding: 0 !important;
-    border-radius: 0 !important;
-    overflow: visible !important;
-    box-shadow: none !important;
-    max-width: min(98vw, 1200px);
-  }
-  dialog::backdrop {
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-  }
-  .light-mode dialog::backdrop {
-    background: rgba(0, 0, 0, 0.4);
-  }
-  /* Modal card itself carries the visual weight */
-  .modal {
-    background: var(--card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 16px !important;
-    padding: 20px !important;
-    color: var(--text) !important;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3) !important;
-    transition: none;
-  }
-  .light-mode .modal {
-    box-shadow: 0 20px 60px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.08) !important;
-  }
-  .modal h3 {
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: -0.2px;
-    margin: 0 0 12px 0;
-    color: var(--text);
-  }
-
-  /* ===== SCROLLBARS ===== */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-
-  /* ===== BUTTONS: Better states + transitions ===== */
-  .btn {
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif;
-    font-weight: 500;
-    font-size: 13px;
-    padding: 8px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--card);
-    color: var(--text);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.1s, opacity 0.15s;
-    white-space: nowrap;
-  }
-  .btn:hover {
-    background: var(--even-row);
-    border-color: var(--muted);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  }
-  .btn:active { transform: translateY(1px); box-shadow: none; }
-  .btn.accent {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-    font-weight: 600;
-  }
-  .btn.accent:hover {
-    filter: brightness(1.1);
-    box-shadow: 0 4px 12px rgba(59,130,246,0.4);
-    border-color: transparent;
-  }
-  .btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-    transform: none !important;
-    box-shadow: none !important;
-    filter: none !important;
-  }
-  /* Mode toggle button */
-  .mode-toggle {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 7px 10px;
-    font-size: 16px;
-    transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
-  }
-  .mode-toggle:hover {
-    background: var(--even-row);
-    border-color: var(--muted);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  }
-
-  /* ===== INPUTS + SELECTS ===== */
-  .field input, .field select,
-  .modal input, .modal select, .modal textarea {
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif;
-    font-size: 13px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--input-bg);
-    color: var(--text);
-    transition: border-color 0.15s, box-shadow 0.15s;
-    outline: none;
-  }
-  .field input:focus, .field select:focus,
-  .modal input:focus, .modal select:focus, .modal textarea:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
-  }
-  .modal input[readonly] {
-    opacity: 0.7;
-    cursor: default;
-  }
-  .modal textarea {
-    resize: vertical;
-    min-height: 60px;
-  }
-
-  /* ===== NATIVE DATE INPUT: calendar icon in dark mode ===== */
-  input[type="date"]::-webkit-calendar-picker-indicator,
-  input[type="time"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.7) brightness(1.5);
-    cursor: pointer;
-    border-radius: 4px;
-    padding: 2px;
-    opacity: 0.7;
-    transition: opacity 0.15s;
-  }
-  input[type="date"]::-webkit-calendar-picker-indicator:hover,
-  input[type="time"]::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
-  }
-  .light-mode input[type="date"]::-webkit-calendar-picker-indicator,
-  .light-mode input[type="time"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.3);
-    opacity: 0.6;
-  }
-
-  /* ===== DATE RANGE input arrow: adapt to theme ===== */
-  #daterange {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>") !important;
-  }
-  .light-mode #daterange {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23495057'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>") !important;
-  }
-
-  /* ===== FLATPICKR: full dark mode override ===== */
-  .flatpickr-calendar {
-    background: var(--card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 12px !important;
-    box-shadow: 0 16px 48px rgba(0,0,0,0.4) !important;
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif !important;
-  }
-  .light-mode .flatpickr-calendar {
-    box-shadow: 0 12px 36px rgba(0,0,0,0.15) !important;
-  }
-  .flatpickr-months {
-    background: var(--card) !important;
-    border-radius: 12px 12px 0 0 !important;
-    padding: 4px 0 !important;
-  }
-  .flatpickr-month { color: var(--text) !important; fill: var(--text) !important; }
-  .flatpickr-current-month { color: var(--text) !important; }
-  .flatpickr-current-month .flatpickr-monthDropdown-months {
-    background: var(--card) !important;
-    color: var(--text) !important;
-  }
-  .flatpickr-current-month input.cur-year {
-    color: var(--text) !important;
-  }
-  .flatpickr-prev-month, .flatpickr-next-month {
-    color: var(--text) !important;
-    fill: var(--text) !important;
-  }
-  .flatpickr-prev-month:hover, .flatpickr-next-month:hover {
-    color: var(--accent) !important;
-    fill: var(--accent) !important;
-    background: rgba(59,130,246,0.1) !important;
-    border-radius: 6px !important;
-  }
-  .flatpickr-prev-month svg, .flatpickr-next-month svg {
-    fill: inherit !important;
-  }
-  .flatpickr-weekday {
-    background: var(--card) !important;
-    color: var(--muted) !important;
-    font-weight: 600 !important;
-    font-size: 11px !important;
-  }
-  .flatpickr-weekdays { background: var(--card) !important; }
-  .flatpickr-days { border-color: var(--border) !important; }
-  .dayContainer { background: var(--card) !important; }
-  .flatpickr-day {
-    color: var(--text) !important;
-    border-radius: 8px !important;
-    font-size: 13px !important;
-  }
-  .flatpickr-day:hover {
-    background: rgba(59,130,246,0.15) !important;
-    border-color: transparent !important;
-  }
-  .flatpickr-day.today {
-    border-color: var(--accent) !important;
-    color: var(--accent) !important;
-    font-weight: 600 !important;
-  }
-  .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange {
-    background: var(--accent) !important;
-    border-color: var(--accent) !important;
-    color: #fff !important;
-    font-weight: 600 !important;
-  }
-  .flatpickr-day.inRange {
-    background: rgba(59,130,246,0.15) !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
-    color: var(--text) !important;
-  }
-  .flatpickr-day.flatpickr-disabled, .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay {
-    color: var(--muted) !important;
-    opacity: 0.4 !important;
-  }
-
-  /* ===== FILTERS section ===== */
-  .filters {
-    border-radius: 12px !important;
-    border: 1px solid var(--border) !important;
-  }
-  .field label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-    margin-bottom: 6px;
-  }
-
-  /* ===== TABLE: enhanced header ===== */
-  thead tr:nth-child(1) th,
-  thead tr:nth-child(2) th {
-    font-weight: 600;
-    font-size: 12px;
-    letter-spacing: 0.2px;
-    color: var(--muted);
-  }
-  thead tr:nth-child(2) th.sortable:hover {
-    color: var(--accent);
-    cursor: pointer;
-  }
-
-  /* ===== ROSTER MATRIX header ===== */
-  #rosterMatrixHead th {
-    font-family: 'Plus Jakarta Sans', ui-sans-serif, sans-serif !important;
-    font-size: 12px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.2px !important;
-  }
-
-  /* ===== STATUS cells: slightly bolder ===== */
-  .status-A, .status-D, .status-U, .status-J,
-  .status-V, .status-O, .status-H, .status-C, .status-ML {
-    font-weight: 600;
-    font-size: 12px;
-    letter-spacing: 0.3px;
-  }
-
-  /* ===== DAY CHECKBOXES ===== */
-  .day-checkbox {
-    font-weight: 500;
-    transition: all 0.15s;
-    border-radius: 8px !important;
-  }
-  .day-checkbox.selected {
-    box-shadow: 0 2px 6px rgba(59,130,246,0.35);
-  }
-
-  /* ===== ROSTER CELL hover ===== */
-  .roster-cell {
-    transition: transform 0.12s, box-shadow 0.12s !important;
-    border-radius: 4px;
-    font-weight: 600;
-    font-size: 11px;
-    letter-spacing: 0.1px;
-  }
-
-  /* ===== TABLE-WRAP ===== */
-  .table-wrap {
-    border-radius: 12px !important;
-    border: 1px solid var(--border) !important;
-  }
-
-  /* ===== HEADER ===== */
-  header {
-    padding: 4px 0;
-  }
-  header h1 {
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.4px;
-  }
-  .title-secondary {
-    font-weight: 500;
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  /* ===== MODAL row labels ===== */
-  .modal .row label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-  }
-
-  /* ===== DROPZONE ===== */
-  #dropZone {
-    transition: border-color 0.2s, background 0.2s !important;
-    border-radius: 12px !important;
-  }
-  #dropZone:hover {
-    border-color: var(--accent) !important;
-    background: rgba(59,130,246,0.05) !important;
-  }
-
-  /* ===== CHECKBOX: native checkbox styling ===== */
-  input[type="checkbox"] {
-    width: 15px;
-    height: 15px;
-    accent-color: var(--accent);
-    cursor: pointer;
-  }
-
-  /* ===== COLOR INPUT ===== */
-  input[type="color"] {
-    border-radius: 6px !important;
-    border: 1px solid var(--border) !important;
-    cursor: pointer;
-    padding: 2px !important;
-    background: var(--input-bg) !important;
-  }
-
-  /* ===== SHIFT LEGEND ===== */
-  #shiftLegend {
-    border-radius: 10px !important;
-  }
-  .roster-legend-item {
-    border-radius: 6px !important;
-    transition: transform 0.1s;
-  }
-  .roster-legend-item:hover {
-    transform: scale(1.04);
-  }
-
-  /* ===== SUMMARY text ===== */
-  #rosterSummary, .summary {
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  /* ===== OVVERRIDE / JUSTIFIED cell indicator ===== */
-  .ovr {
-    box-shadow: 0 0 0 2px rgba(255,255,255,.3) inset, 0 0 8px rgba(255,255,255,.2) !important;
-    filter: brightness(1.18) !important;
-  }
-
-  /* ===== Select elements: native arrow visible in both modes ===== */
-  select {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    background-size: 14px 14px;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    padding-right: 28px !important;
-  }
-  .light-mode select {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23495057'><path d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.06z'/></svg>");
-  }
-  select option {
-    background: var(--card);
-    color: var(--text);
-  }
-</style>
 
 <!-- Flatpickr JS -->
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -1115,23 +955,19 @@
   // Set initial title
   setTitleMonth(DEFAULT_START);
 
-  // Init Tom Select for Lead
-  // Populate native select for Lead to match status dropdown styling
+  // Populate Lead filter
   const leadEl = document.getElementById('lead');
-  leadEl.innerHTML = '<option value="">All</option>' + APP_OPTIONS.leads.map(l => `<option value="${l}">${l}</option>`).join('');
+  leadEl.innerHTML = '<option value="">All Leads</option>' + APP_OPTIONS.leads.map(l => `<option value="${l}">${l}</option>`).join('');
   leadEl.addEventListener('change', () => loadAttendance().catch(err => alert(err.message)));
-  // Wrapper to keep compatibility with code expecting a TomSelect-like API
   leadSelect = {
     getValue: () => leadEl.value,
     clear: (_keep) => { leadEl.value = ''; }
   };
 
-  // Init Tom Select for Agent (ID)
-  // Populate native select for Agent (ID) to match status dropdown styling
+  // Populate Agent filter
   const agentEl = document.getElementById('agent_id');
-  agentEl.innerHTML = '<option value="">All</option>' + APP_OPTIONS.agents.map(a => `<option value="${a.id}">${a.id} — ${a.name}</option>`).join('');
+  agentEl.innerHTML = '<option value="">All Agents</option>' + APP_OPTIONS.agents.map(a => `<option value="${a.id}">${a.id} — ${a.name}</option>`).join('');
   agentEl.addEventListener('change', () => loadAttendance().catch(err => alert(err.message)));
-  // Wrapper for compatibility with existing code
   agentSelect = {
     getValue: () => agentEl.value,
     clear: (_keep) => { agentEl.value = ''; }
