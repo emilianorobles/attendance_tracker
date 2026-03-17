@@ -389,7 +389,7 @@ async def update_bulk_shift_assignment(request: BulkShiftAssignmentRequest):
     
     from ..providers.schedule_provider import ScheduleProvider
     ScheduleProvider.invalidate_cache()
-    
+
     return {"results": results}
 
 
@@ -651,3 +651,22 @@ async def restore_agent(request: AddAgentRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.get("/debug/assignments/{agent_id}")
+async def debug_assignments(agent_id: str):
+    """Temporary debug endpoint to inspect raw DB records."""
+    from ..shift_db import get_pg_connection
+    with get_pg_connection() as con:
+        cur = con.cursor()
+        cur.execute("""
+            SELECT id, day_of_week, shift_code, effective_start, effective_end
+            FROM agent_shift_assignments
+            WHERE agent_id = %s
+            ORDER BY day_of_week, effective_start DESC
+        """, (agent_id,))
+        rows = cur.fetchall()
+    return {"agent_id": agent_id, "assignments": [
+        {"id": r[0], "day": r[1], "shift": r[2], "eff_start": str(r[3]), "eff_end": str(r[4])}
+        for r in rows
+    ]}
