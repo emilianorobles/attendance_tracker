@@ -105,7 +105,7 @@ def index(request: Request):
     leads, agents = get_all_agents_and_leads()
     options_json = json.dumps({"leads": leads, "agents": agents})
 
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request=request, name="index.html", context={
         "request": request,
         "options_json": options_json,
         "default_start": start.isoformat(),
