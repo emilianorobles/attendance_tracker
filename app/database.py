@@ -390,7 +390,8 @@ def get_all_agents_and_leads():
     try:
         from .shift_db import get_all_roster_agents
 
-        leads = set()
+        # Keep this lead selectable even before any agents are assigned to him.
+        leads = {"Adrián Pérez"}
         agents = {}
 
         # Primary source: roster table
